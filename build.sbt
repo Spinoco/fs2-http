@@ -30,6 +30,9 @@ lazy val commonSettings = Seq(
      "org.scodec" %% "scodec-bits" % "1.1.0"
      , "org.scodec" %% "scodec-core" % "1.10.2" 
      , "org.scalacheck" %% "scalacheck" % "1.13.1" % "test"
+     , "com.spinoco" %% "protocol-http" % "0.1.2-SNAPSHOT"
+     , "co.fs2" %% "fs2-core" % "0.9.2"
+     , "co.fs2" %% "fs2-io" % "0.9.2"
    ),
    scmInfo := Some(ScmInfo(url("https://github.com/Spinoco/fs2-http"), "git@github.com:Spinoco/fs2-http.git")),
    homepage := None,
@@ -102,13 +105,11 @@ lazy val releaseSettings = Seq(
   releasePublishArtifactsAction := PgpKeys.publishSigned.value
 )
 
-
-
-lazy val httpClient =
-  project.in(file("client"))
+lazy val fs2Http=
+  project.in(file("./"))
   .settings(commonSettings)
   .settings(
-    name := "fs2-http-client"
+    name := "fs2-http"
   )
 
 
