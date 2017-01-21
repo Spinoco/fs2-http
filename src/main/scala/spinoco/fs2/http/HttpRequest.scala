@@ -5,7 +5,6 @@ import fs2._
 import scodec.Attempt.{Failure, Successful}
 import scodec.Codec
 import spinoco.fs2.interop.scodec.ByteVectorChunk
-import spinoco.protocol.http.codec.HttpRequestHeaderCodec
 import spinoco.protocol.http.header.Host
 
 /**
@@ -58,6 +57,33 @@ object HttpRequest {
     get(uri).withMethod(HttpMethod.DELETE)
 
 
+  /**
+    * Reads http header and body from the stream of bytes.
+    *
+    * If the body is encoded in chunked encoding this will decode it
+    *
+    * @param maxHeaderSize    Maximum size of the http header
+    * @param headerCodec      header codec to use
+    * @tparam F
+    * @return
+    */
+  def fromStream[F[_]](
+    maxHeaderSize: Int
+    , headerCodec: Codec[HttpRequestHeader]
+  ): Pipe[F, Byte, (HttpRequestHeader, Stream[F, Byte])] = {
+    import internal._
+    _ through httpHeaderAndBody(maxHeaderSize) flatMap { case (header, bodyRaw) =>
+      headerCodec.decodeValue(header.bits) match {
+        case Failure(err) => Stream.fail(new Throwable(s"Decoding of the request header failed: $err"))
+        case Successful(decoded) =>
+          val body =
+            if (bodyIsChunked(decoded.headers)) bodyRaw through ChunkedEncoding.decode(1000)
+            else bodyRaw
+
+          Stream.emit(decoded -> body)
+      }
+    }
+  }
 
 
   /**
@@ -71,8 +97,8 @@ object HttpRequest {
     */
   def toStream[F[_]](
     request: HttpRequest[F]
-    , headerCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
-  ): Stream[F, Byte] = {
+    , headerCodec: Codec[HttpRequestHeader]
+  ): Stream[F, Byte] = Stream.suspend {
     import internal._
 
     headerCodec.encode(request.header) match {
