@@ -31,6 +31,7 @@ lazy val commonSettings = Seq(
      , "org.scodec" %% "scodec-core" % "1.10.2" 
      , "org.scalacheck" %% "scalacheck" % "1.13.1" % "test"
      , "com.spinoco" %% "protocol-http" % "0.1.2-SNAPSHOT"
+     , "com.spinoco" %% "protocol-websocket" % "0.1.2-SNAPSHOT"
      , "co.fs2" %% "fs2-core" % "0.9.2"
      , "co.fs2" %% "fs2-io" % "0.9.2"
    ),

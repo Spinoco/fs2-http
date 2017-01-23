@@ -1,8 +1,12 @@
 package spinoco.fs2.http
 
+import java.net.InetSocketAddress
+
+import fs2.util.Async
 import fs2.{Stream, _}
 import scodec.bits.ByteVector
 import spinoco.fs2.interop.scodec.ByteVectorChunk
+import spinoco.protocol.http.{HostPort, HttpScheme}
 import spinoco.protocol.http.header.{HttpHeader, `Transfer-Encoding`}
 
 
@@ -56,6 +60,19 @@ package object internal {
     }
 
     go(_, ByteVector.empty)
+  }
+
+
+  /** evaluates address from the host port and scheme **/
+  def addressForRequest[F[_]](scheme: HttpScheme.Value, host: HostPort)(implicit F: Async[F]):F[InetSocketAddress] = F.delay {
+    val port = host.port.getOrElse {
+      scheme match {
+        case HttpScheme.HTTPS | HttpScheme.WSS => 443
+        case HttpScheme.HTTP | HttpScheme.WS => 80
+      }
+    }
+
+    new InetSocketAddress(host.host, port)
   }
 
 }

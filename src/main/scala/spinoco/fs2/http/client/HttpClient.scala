@@ -1,6 +1,5 @@
 package spinoco.fs2.http.client
 
-import java.net.InetSocketAddress
 import java.nio.channels.AsynchronousChannelGroup
 import java.util.concurrent.TimeoutException
 
@@ -9,7 +8,7 @@ import fs2.util.Async
 import scodec.Codec
 import spinoco.fs2.http.{HttpRequest, HttpResponse}
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
-import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader, HttpScheme}
+import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
 
 import scala.concurrent.duration._
 
@@ -55,27 +54,19 @@ trait HttpClient[F[_]] {
   ):Stream[F,HttpResponse[F]]
 
 
+
 }
 
 
  object HttpClient {
 
 
+
   def apply[F[_]](implicit AG: AsynchronousChannelGroup, F: Async[F]):F[HttpClient[F]] = F.delay {
 
-    def addressForRequest(request: HttpRequest[F]):F[InetSocketAddress] = F.delay {
-      val port = request.host.port.getOrElse {
-        request.scheme match {
-          case HttpScheme.HTTPS | HttpScheme.WSS => 443
-          case HttpScheme.HTTP | HttpScheme.WS => 80
-        }
-      }
 
-      new InetSocketAddress(request.host.host, port)
-    }
 
     new HttpClient[F] {
-
       def request(
        request: HttpRequest[F]
        , chunkSize: Int
@@ -84,7 +75,8 @@ trait HttpClient[F[_]] {
        , requestCodec: Codec[HttpRequestHeader]
        , responseCodec: Codec[HttpResponseHeader]
       ): Stream[F, HttpResponse[F]] = {
-        Stream.eval(addressForRequest(request)).flatMap { address =>
+        import spinoco.fs2.http.internal._
+        Stream.eval(addressForRequest(request.scheme, request.host)).flatMap { address =>
         io.tcp.client(address).flatMap { socket =>
           timeout match {
             case fin: FiniteDuration =>
