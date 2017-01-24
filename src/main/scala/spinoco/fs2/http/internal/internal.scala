@@ -9,6 +9,8 @@ import spinoco.fs2.interop.scodec.ByteVectorChunk
 import spinoco.protocol.http.{HostPort, HttpScheme}
 import spinoco.protocol.http.header.{HttpHeader, `Transfer-Encoding`}
 
+import scala.reflect.ClassTag
+
 
 package object internal {
 
@@ -73,6 +75,11 @@ package object internal {
     }
 
     new InetSocketAddress(host.host, port)
+  }
+
+  /** swaps header `H` for new value. If header exists, it is discarded. Appends header to the end**/
+  def swapHeader[H <: HttpHeader](header: H)(headers: List[HttpHeader])(implicit CT: ClassTag[H]) : List[HttpHeader] = {
+    headers.filterNot(CT.runtimeClass.isInstance) :+ header
   }
 
 }

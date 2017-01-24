@@ -38,7 +38,7 @@ trait HttpClient[F[_]] {
     * Resulting stream fails with TimeoutException if the timeout is triggered
     *
     * @param request        Request to make to server
-    * @param chunkSize      Size of the chunk to used when sending//receiving stream to/from server
+    * @param chunkSize      Size of the chunk to used when receiving response from server
     * @param timeout        Request will fail if response header and response body is not received within supplied timeout
     * @param requestCodec   Codec used to encode request
     * @param responseCodec  Codec used to decode response
