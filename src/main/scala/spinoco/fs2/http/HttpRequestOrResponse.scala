@@ -7,7 +7,9 @@ import scodec.{Attempt, Codec, Err}
 import spinoco.fs2.http.body.{BodyDecoder, BodyEncoder, StreamBodyEncoder}
 import spinoco.fs2.interop.scodec.ByteVectorChunk
 import spinoco.protocol.http._
-import spinoco.protocol.http.header.{Host, HttpHeader, `Content-Length`, `Content-Type`}
+import header._
+import header.value.ContentType
+
 
 /** common request/response methods **/
 sealed trait HttpRequestOrResponse[F[_]] { self =>
@@ -20,7 +22,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
   /** allows to stream arbitrary sized stream of `A` to remote party (i.e. upload) **/
   def withStreamBody[A](body: Stream[F, A])(implicit E: StreamBodyEncoder[F, A]): Self = {
     updateBody(body through E.encode)
-    .updateHeaders(withHeaders(internal.swapHeader(`Content-Type`(E.contentType))))
+    .withContentType(E.contentType)
     .asInstanceOf[Self]
   }
 
@@ -29,8 +31,12 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
     withStreamBody(Stream.suspend(Stream.emit(a)))
 
   /** sets body size to supplied value **/
-  def bodySize(sz: Int): Self =
+  def withBodySize(sz: Long): Self =
     updateHeaders(withHeaders(internal.swapHeader(`Content-Length`(sz))))
+
+  /** gets body size, if one specified **/
+  def bodySize: Option[Long] =
+    withHeaders(_.collectFirst { case `Content-Length`(sz) => sz })
 
   protected def body: Stream[F, Byte]
 
@@ -70,7 +76,18 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
   def bodyAsString(implicit F: Catchable[F]): F[Attempt[String]] =
     bodyAs[String](BodyDecoder.stringDecoder, F)
 
+  /** updates content type to one specified **/
+  def withContentType(ct: ContentType): Self =
+    updateHeaders(withHeaders(internal.swapHeader(`Content-Type`(ct))))
 
+  /** gets ContentType, if one specififed **/
+  def contentType: Option[ContentType] =
+    withHeaders(_.collectFirst{ case `Content-Type`(ct) => ct })
+
+
+  /** configures encoding as chunked **/
+  def chunkedEncoding: Self =
+    updateHeaders(withHeaders(internal.swapHeader(`Transfer-Encoding`(List("chunked")))))
 
   private def withHeaders[A](f: List[HttpHeader] => A): A = self match {
     case HttpRequest(_,_,header,_) => f(header.headers)
@@ -101,7 +118,7 @@ final case class HttpRequest[F[_]](
  , body: Stream[F, Byte]
 ) extends HttpRequestOrResponse[F]  { self =>
 
-  override type Self = HttpRequest[F]
+  type Self = HttpRequest[F]
 
   def withMethod(method: HttpMethod.Value): HttpRequest[F] = {
     self.copy(header = self.header.copy(method = method))

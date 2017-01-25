@@ -1,7 +1,6 @@
 package spinoco.fs2.http.client
 
 import java.nio.channels.AsynchronousChannelGroup
-import java.util.concurrent.TimeoutException
 
 import fs2._
 import fs2.io.tcp.Socket
@@ -93,34 +92,21 @@ trait HttpClient[F[_]] {
       , responseCodec: Codec[HttpResponseHeader]
      )(socket: Socket[F])(implicit F: Async[F]): Stream[F, HttpResponse[F]] = {
        import Stream._
+       import spinoco.fs2.http.internal._
        timeout match {
          case fin: FiniteDuration =>
            eval(F.delay(System.currentTimeMillis())).flatMap { start =>
            HttpRequest.toStream(request, requestCodec).to(socket.writes(Some(fin))).last.flatMap { _ =>
            eval(async.signalOf[F, Boolean](true)).flatMap { timeoutSignal =>
-             def readWithTimeout: Stream[F, Byte] = {
-               eval(timeoutSignal.get).flatMap { shallTimeout =>
-                 if (!shallTimeout) eval(socket.read(chunkSize, None))
-                 else {
-                   eval(F.delay(System.currentTimeMillis())).flatMap { now =>
-                     val remains = fin - (now - start).millis
-                     if (remains <= 0.millis) Stream.fail(new TimeoutException())
-                     else {
-                       eval(socket.read(chunkSize, Some(remains)))
-                     }
-                   }
-                 }
-               }.flatMap {
-                 case Some(bytes) => Stream.chunk(bytes) ++ readWithTimeout
-                 case None => Stream.empty
-               }
-             }
+           eval(F.delay(System.currentTimeMillis())).flatMap { sent =>
+             val remains = (fin - (sent - start).millis)
 
-             readWithTimeout through  HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec) flatMap { response =>
+             readWithTimeout(socket, remains, timeoutSignal.get, chunkSize)
+             .through (HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec))
+             .flatMap { response =>
                eval_(timeoutSignal.set(false)) ++ emit(response)
              }
-           }
-           }}
+           }}}}
 
          case infinite =>
            HttpRequest.toStream(request, requestCodec).to(socket.writes(None)).last.flatMap { _ =>

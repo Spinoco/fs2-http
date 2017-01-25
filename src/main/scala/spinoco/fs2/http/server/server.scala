@@ -39,9 +39,11 @@ package object server {
      , requestHeaderReceiveTimeout: Duration = 5.seconds
      , requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
      , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
+     , requestFailure : Throwable => Stream[F, HttpResponse[F]] = HttpServer.handleRequestParseError[F] _
+     , sendFailure: (Option[HttpRequestHeader], HttpResponse[F], Throwable) => Stream[F, Nothing] = HttpServer.handleSendFailure[F] _
    )(
      bindTo: InetSocketAddress
-     , service:  Pipe[F, (HttpRequestHeader, Stream[F,Byte]), HttpResponse[F]]
+     , service:  (HttpRequestHeader, Stream[F,Byte]) => Stream[F,HttpResponse[F]]
    )(
      implicit
      AG: AsynchronousChannelGroup
@@ -55,6 +57,8 @@ package object server {
     , responseCodec = responseCodec
     , bindTo = bindTo
     , service = service
+    , requestFailure = requestFailure
+    , sendFailure = sendFailure
   )
 
 }
