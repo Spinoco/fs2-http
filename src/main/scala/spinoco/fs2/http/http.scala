@@ -1,22 +1,19 @@
-package spinoco.fs2.http
+package spinoco.fs2
 
 import java.net.InetSocketAddress
 import java.nio.channels.AsynchronousChannelGroup
 
-import fs2._
+import fs2.Stream
 import fs2.util.Async
 import scodec.Codec
+import spinoco.fs2.http.internal.{HttpClient, HttpServer}
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 
 import scala.concurrent.duration._
 
 
-package object server {
-
-
-  type HttpService[F[_]] = Pipe[F,HttpRequest[F], HttpResponse[F]]
-
+package object http {
 
   /**
     * Creates simple http server,
@@ -32,8 +29,9 @@ package object server {
     * @param requestCodec                 Codec for Http Request Header
     * @param service                      Pipe that defines handling of each incoming request and produces a response
     */
-  def apply[F[_]](
-     maxConcurrent: Int = Int.MaxValue
+  def server[F[_]](
+     bindTo: InetSocketAddress
+     , maxConcurrent: Int = Int.MaxValue
      , receiveBufferSize: Int = 256 * 1024
      , maxHeaderSize: Int = 10 *1024
      , requestHeaderReceiveTimeout: Duration = 5.seconds
@@ -42,8 +40,7 @@ package object server {
      , requestFailure : Throwable => Stream[F, HttpResponse[F]] = HttpServer.handleRequestParseError[F] _
      , sendFailure: (Option[HttpRequestHeader], HttpResponse[F], Throwable) => Stream[F, Nothing] = HttpServer.handleSendFailure[F] _
    )(
-     bindTo: InetSocketAddress
-     , service:  (HttpRequestHeader, Stream[F,Byte]) => Stream[F,HttpResponse[F]]
+     service:  (HttpRequestHeader, Stream[F,Byte]) => Stream[F,HttpResponse[F]]
    )(
      implicit
      AG: AsynchronousChannelGroup
@@ -60,5 +57,18 @@ package object server {
     , requestFailure = requestFailure
     , sendFailure = sendFailure
   )
+
+
+  /**
+    * Creates a client that can be used to make http requests to servers
+    *
+    * @param requestCodec    Codec used to decode request header
+    * @param responseCodec   Codec used to encode response header
+    */
+  def client[F[_]](
+   requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
+   , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
+  )(implicit AG: AsynchronousChannelGroup, F: Async[F]):F[HttpClient[F]] =
+    HttpClient(requestCodec, responseCodec)
 
 }

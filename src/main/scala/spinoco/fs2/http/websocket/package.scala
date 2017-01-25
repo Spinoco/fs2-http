@@ -29,14 +29,14 @@ package object websocket {
     f: HttpRequestHeader => Either[HttpResponse[F], Pipe[F, Frame[I], Frame[O]]]
     , pingInterval: Duration = 30.seconds
     , handshakeTimeout: FiniteDuration = 10.seconds
-  )(
+  )(header: HttpRequestHeader, input: Stream[F,Byte])(
     implicit
     R: Decoder[I]
     , W: Encoder[O]
     , F: Async[F]
     , S: Scheduler
-  ): Pipe[F, (HttpRequestHeader, Stream[F,Byte]), HttpResponse[F]] =
-    WebSocket.server(f, pingInterval, handshakeTimeout)
+  ): Stream[F, HttpResponse[F]] =
+    WebSocket.server(f, pingInterval, handshakeTimeout)(header, input)
 
 
 

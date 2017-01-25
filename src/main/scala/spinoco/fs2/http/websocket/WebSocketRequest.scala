@@ -1,6 +1,7 @@
 package spinoco.fs2.http.websocket
 
-import spinoco.protocol.http.{HostPort, HttpRequestHeader}
+import spinoco.protocol.http.header.Host
+import spinoco.protocol.http.{HostPort, HttpMethod, HttpRequestHeader, Uri}
 
 
 /**
@@ -15,3 +16,37 @@ case class WebSocketRequest(
    , header: HttpRequestHeader
    , secure: Boolean
 )
+
+
+object WebSocketRequest {
+
+  def ws(host: String, port: Int, path: String, params: (String, String)*): WebSocketRequest = {
+    val hostPort = HostPort(host, Some(port))
+    WebSocketRequest(
+      hostPort = hostPort
+      , header = HttpRequestHeader(
+        method = HttpMethod.GET
+        , path = Uri.Path.fromUtf8String(path)
+        , headers = List(
+          Host(hostPort)
+        )
+        , query = Uri.Query(params.toList)
+      )
+      , secure = false
+    )
+  }
+
+  def ws(host: String, path: String, params: (String, String)*): WebSocketRequest =
+    ws(host, 80, path, params:_*)
+
+
+  def wss(host: String, port: Int, path: String, params: (String, String)*): WebSocketRequest = {
+    ws(host, port, path, params:_*).copy(secure = true)
+  }
+
+  def wss(host: String, path: String, params: (String, String)*): WebSocketRequest =
+    ws(host, 443, path, params:_*)
+
+
+
+}

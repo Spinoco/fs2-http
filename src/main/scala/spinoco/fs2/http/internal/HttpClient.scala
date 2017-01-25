@@ -1,11 +1,12 @@
-package spinoco.fs2.http.client
+package spinoco.fs2.http.internal
 
 import java.nio.channels.AsynchronousChannelGroup
 
 import fs2._
 import fs2.io.tcp.Socket
 import fs2.util.Async
-import scodec.Codec
+import scodec.{Codec, Decoder, Encoder}
+import spinoco.fs2.http.websocket.{Frame, WebSocket, WebSocketRequest}
 import spinoco.fs2.http.{HttpRequest, HttpResponse}
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
 
@@ -49,6 +50,37 @@ trait HttpClient[F[_]] {
   ):Stream[F,HttpResponse[F]]
 
 
+  /**
+    * Establishes websocket connection to the server.
+    *
+    * Implementation is according to RFC-6455 (https://tools.ietf.org/html/rfc6455).
+    *
+    * If this is established successfully, then this consults `pipe` to receive/sent any frames
+    * From/To server. Once the connection finishes, this will emit once None.
+    *
+    * If the connection was not established correctly (i.e. Authorization failure) this will not
+    * consult supplied pipe and instead this will immediately emit response received from the server.
+    *
+    * @param request              WebSocket request
+    * @param pipe                 Pipe that is consulted when WebSocket is established correctly
+    * @param maxResponseHeaderSize  Max size of  Http Response header received
+    * @param chunkSize            Size of receive buffer to use
+    * @param maxFrameSize         Maximum size of single WebSocket frame. If the binary size of single frame is larger than
+    *                             supplied value, WebSocket will fail.
+    *
+    */
+  def websocket[I,O](
+     request: WebSocketRequest
+     , pipe: Pipe[F, Frame[I], Frame[O]]
+     , maxResponseHeaderSize: Int = 4096
+     , chunkSize: Int = 256 * 1024
+     , maxFrameSize: Int = 1024*1024
+  )(
+   implicit
+    R: Decoder[I]
+    , W: Encoder[O]
+    , S: Scheduler
+  ): Stream[F, Option[HttpResponseHeader]]
 
 }
 
@@ -73,15 +105,23 @@ trait HttpClient[F[_]] {
        , maxResponseHeaderSize: Int
        , timeout: Duration
       ): Stream[F, HttpResponse[F]] = {
-        import spinoco.fs2.http.internal._
         Stream.eval(addressForRequest(request.scheme, request.host)).flatMap { address =>
         io.tcp.client(address).flatMap { impl.request(request, chunkSize, maxResponseHeaderSize, timeout, requestCodec, responseCodec ) }}
       }
+
+      def websocket[I, O](
+        request: WebSocketRequest
+        , pipe: Pipe[F, Frame[I], Frame[O]]
+        , maxResponseHeaderSize: Int
+        , chunkSize: Int
+        , maxFrameSize: Int
+      )(implicit R: Decoder[I], W: Encoder[O], S: Scheduler): Stream[F, Option[HttpResponseHeader]] =
+        WebSocket.client(request,pipe,maxResponseHeaderSize,chunkSize,maxFrameSize, requestCodec, responseCodec)
     }
   }
 
 
-   private[client] object impl {
+   private[internal] object impl {
 
      def request[F[_]](
       request: HttpRequest[F]
@@ -92,7 +132,6 @@ trait HttpClient[F[_]] {
       , responseCodec: Codec[HttpResponseHeader]
      )(socket: Socket[F])(implicit F: Async[F]): Stream[F, HttpResponse[F]] = {
        import Stream._
-       import spinoco.fs2.http.internal._
        timeout match {
          case fin: FiniteDuration =>
            eval(F.delay(System.currentTimeMillis())).flatMap { start =>

@@ -7,7 +7,7 @@ import fs2._
 import fs2.async.mutable.Queue
 import fs2.util.Async
 import scodec.Attempt.{Failure, Successful}
-import scodec.bits.{BitVector, ByteVector}
+import scodec.bits.ByteVector
 import scodec.{Codec, Decoder, Encoder}
 import spinoco.fs2.http.HttpResponse
 import spinoco.fs2.interop.scodec.ByteVectorChunk
@@ -46,20 +46,20 @@ object WebSocket {
     , pingInterval: Duration = 30.seconds
     , handshakeTimeout: FiniteDuration = 10.seconds
     , maxFrameSize: Int = 1024*1024
-  )(
+  )(header: HttpRequestHeader, input:Stream[F,Byte])(
     implicit
     R: Decoder[I]
     , W: Encoder[O]
     , F: Async[F]
     , S: Scheduler
-  ): Pipe[F, (HttpRequestHeader, Stream[F,Byte]), HttpResponse[F]] = {
-    _.map { case (header, input) =>
-        f(header).right.flatMap { pipe =>
-        impl.verifyHeaderRequest[F](header).right.map { key =>
-          val respHeader = impl.computeHandshakeResponse(header, key)
-          HttpResponse(respHeader, input through impl.webSocketOf(pipe, pingInterval, maxFrameSize, client2Server = false))
-        }}.merge
-    }
+  ): Stream[F,HttpResponse[F]] = {
+    Stream.emit(
+      f(header).right.flatMap { pipe =>
+      impl.verifyHeaderRequest[F](header).right.map { key =>
+        val respHeader = impl.computeHandshakeResponse(header, key)
+        HttpResponse(respHeader, input through impl.webSocketOf(pipe, pingInterval, maxFrameSize, client2Server = false))
+      }}.merge
+    )
   }
 
 
@@ -108,7 +108,7 @@ object WebSocket {
       requestCodec.encode(header) match {
         case Failure(err) => Stream.fail(new Throwable(s"Failed to encode websocket request: $err"))
         case Successful(headerBits) =>
-          eval(socket.write(ByteVectorChunk(headerBits.bytes))).flatMap { _ =>
+          eval(socket.write(ByteVectorChunk(headerBits.bytes ++ `\r\n\r\n`))).flatMap { _ =>
             socket.reads(receiveBufferSize) through httpHeaderAndBody(maxHeaderSize) flatMap { case (respHeaderBytes, body) =>
               responseCodec.decodeValue(respHeaderBytes.bits) match {
                 case Failure(err) => fail(new Throwable(s"Failed to decode websocket response: $err"))
@@ -138,7 +138,7 @@ object WebSocket {
 
 
     /**
-      * Verifies validity of websocket header request and extracts websocket key
+      * Verifies validity of WebSocket header request (on server) and extracts WebSocket key
       */
     def verifyHeaderRequest[F[_]](header: HttpRequestHeader): Either[HttpResponse[F], ByteVector] = {
       def badRequest(s:String) = HttpResponse[F](
@@ -157,6 +157,18 @@ object WebSocket {
         case `Sec-WebSocket-Version`(other) => Left(badRequest(s"Unsupported websocket version: $other"))
       }.getOrElse(Left(badRequest("Missing Sec-WebSocket-Version header")))
 
+      def host: Either[HttpResponse[F], Unit] = header.headers.collectFirst {
+        case Host(_) => Right(())
+      }.getOrElse(Left(badRequest("Missing header `Host: hostname`")))
+
+      def upgrade: Either[HttpResponse[F], Unit] = header.headers.collectFirst {
+        case Upgrade(pds) if pds.exists { pd => pd.name.equalsIgnoreCase("websocket") && pd.comment.isEmpty } => Right(())
+      }.getOrElse(Left(badRequest("Missing header `Upgrade: websocket`")))
+
+      def connection: Either[HttpResponse[F], Unit] = header.headers.collectFirst {
+        case Connection(s) if s.exists(_.equalsIgnoreCase("Upgrade")) => Right(())
+      }.getOrElse(Left(badRequest("Missing header `Connection: upgrade`")))
+
 
       def webSocketKey: Either[HttpResponse[F], ByteVector] = header.headers.collectFirst {
         case `Sec-WebSocket-Key`(key) => Right(key)
@@ -164,6 +176,9 @@ object WebSocket {
 
       for {
         _ <- version.right
+        _ <- host.right
+        _ <- upgrade.right
+        _ <- connection.right
         key <- webSocketKey.right
       } yield key
 
@@ -212,15 +227,16 @@ object WebSocket {
           case fin: FiniteDuration => time.awakeEvery[F](fin).map { _ => () }
           case inf => Stream.empty
         }
-        val control = controlStream(pingPongQ.dequeue, metronome, maxUnanswered = 3)
+        val control = controlStream(pingPongQ.dequeue, metronome, maxUnanswered = 3, flag = client2Server)
 
         source
-        .through(decodeWebSocketFrame[F](maxFrameSize))
+        .through(decodeWebSocketFrame[F](maxFrameSize, client2Server))
         .through(webSocketFrame2Frame[F, I](pingPongQ))
         .through(pipe)
-        .through(frame2WebSocketFrame[F, O](if (client2Server) Some(randomBytes(4).bits) else None))
+        .through(frame2WebSocketFrame[F, O](if (client2Server) Some(Random.nextInt()) else None))
         .mergeHaltBoth(control)
-        .through(encodeWebSocketFrame[F])
+        .through(encodeWebSocketFrame[F](client2Server))
+
       }
     }}
 
@@ -233,13 +249,13 @@ object WebSocket {
       *
       * @param maxFrameSize  Maximum size of the frame, including its header.
       */
-    def decodeWebSocketFrame[F[_]](maxFrameSize: Int): Pipe[F, Byte, WebSocketFrame] = {
+    def decodeWebSocketFrame[F[_]](maxFrameSize: Int , flag: Boolean): Pipe[F, Byte, WebSocketFrame] = {
       import spinoco.fs2.http.internal._
       // cuts necessary data for decoding the frame.
       // empty if the data couldn't be decoded yet
       def cutFrame(in:ByteVector): Option[ByteVector] = {
         val bits = in.bits
-        if (in.size < 16) None
+        if (bits.size < 16) None // smallest frame is 16 bits
         else {
           val maskSize = if (bits(8)) 4 else 0
           val sz = bits.drop(9).take(7).toInt()
@@ -323,7 +339,7 @@ object WebSocket {
       * Encodes received frome to WebSocketFrame.
       * @param maskKey  A funtion that allows to generate random masking key. Masking is applied at client -> server direction only.
       */
-    def frame2WebSocketFrame[F[_], A](maskKey: => Option[BitVector])(implicit W: Encoder[A]): Pipe[F, Frame[A], WebSocketFrame] = {
+    def frame2WebSocketFrame[F[_], A](maskKey: => Option[Int])(implicit W: Encoder[A]): Pipe[F, Frame[A], WebSocketFrame] = {
       _.flatMap { frame =>
         W.encode(frame.a) match {
           case Failure(err) => Stream.fail(new Throwable(s"Failed to encode frame: $err (frame: $frame)"))
@@ -344,7 +360,7 @@ object WebSocket {
       * @tparam F
       * @return
       */
-    def encodeWebSocketFrame[F[_]]: Pipe[F, WebSocketFrame, Byte] = {
+    def encodeWebSocketFrame[F[_]](flag: Boolean): Pipe[F, WebSocketFrame, Byte] = {
       _.append(Stream.emit(closeFrame)).flatMap { wsf =>
         WebSocketFrameCodec.codec.encode(wsf) match {
           case Failure(err) => Stream.fail(new Throwable(s"Failed to encode websocket frame: $err (frame: $wsf)"))
@@ -369,6 +385,7 @@ object WebSocket {
        pingPongs: Stream[F, PingPong]
        , metronome: Stream[F, Unit]
        , maxUnanswered: Int
+       , flag: Boolean
     )(implicit F: Async[F]): Stream[F, WebSocketFrame] = {
       (pingPongs either metronome)
       .mapAccumulate(0) { case (pingsSent, in) => in match {
@@ -385,7 +402,7 @@ object WebSocket {
 
     val magic = ByteVector.view("258EAFA5-E914-47DA-95CA-C5AB0DC85B11".getBytes)
     def computeFingerPrint(key: ByteVector): ByteVector =
-      (key ++ magic).digest("SHA-1")
+      (ByteVector.view(key.toBase64.getBytes) ++ magic).digest("SHA-1")
 
 
     /**
@@ -398,8 +415,17 @@ object WebSocket {
     def createRequestHeaders(header:HttpRequestHeader, random: => ByteVector = randomBytes(16)): (HttpRequestHeader, ByteVector) = {
       val key = random
       val headers =
-        header.headers.filterNot { h => h.isInstanceOf[`Sec-WebSocket-Key`]  || h.isInstanceOf[`Sec-WebSocket-Version`] } ++
-        List(`Sec-WebSocket-Key`(key), `Sec-WebSocket-Version`(13))
+        header.headers.filterNot ( h =>
+          h.isInstanceOf[`Sec-WebSocket-Key`]
+          || h.isInstanceOf[`Sec-WebSocket-Version`]
+          || h.isInstanceOf[Upgrade]
+        ) ++
+        List(
+          `Sec-WebSocket-Key`(key)
+          , `Sec-WebSocket-Version`(13)
+          , Connection(List("upgrade"))
+          , Upgrade(List(ProductDescription("websocket", None)))
+        )
 
       header.copy(
         method = HttpMethod.GET
@@ -417,28 +443,32 @@ object WebSocket {
       * If fingerprint won't match or the websocket headers wont match the request, this fails.
       * @param request      Sent request header
       * @param response     received header
-      * @param fingerprint  expected fingerprint in header
+      * @param expectFingerPrint  expected fingerprint in header
       * @return
       */
     def validateResponse[F[_]](
       request: HttpRequestHeader
       , response: HttpResponseHeader
-      , fingerprint: ByteVector
+      , expectFingerPrint: ByteVector
     ): Stream[F, Option[HttpResponseHeader]] = {
       import Stream._
 
       def validateFingerPrint: Stream[F,Unit] =
       response.headers.collectFirst {
         case `Sec-WebSocket-Accept`(receivedFp) =>
-          if (receivedFp != fingerprint) fail(new Throwable(s"Websocket fingerprints won't match, expected $fingerprint, but got $receivedFp"))
+          if (receivedFp != expectFingerPrint) fail(new Throwable(s"Websocket fingerprints won't match, expected $expectFingerPrint, but got $receivedFp"))
           else emit(())
       }.getOrElse(fail(new Throwable(s"Websocket response is missing the `Sec-WebSocket-Accept` header : $response")))
 
-      def validateVersion: Stream[F,Unit] =
+      def validateUpgrade: Stream[F,Unit] =
         response.headers.collectFirst {
-          case `Sec-WebSocket-Version`(13) => emit(())
-          case `Sec-WebSocket-Version`(other) => fail(new Throwable(s"Websocket response has invalid version, expected 13, but got $other"))
-        }.getOrElse(fail(new Throwable(s"Websocket version header is missing $response")))
+          case Upgrade(pds) if pds.exists { pd => pd.name.equalsIgnoreCase("websocket")  && pd.comment.isEmpty }  => emit(())
+        }.getOrElse(fail(new Throwable(s"WebSocket response must contain header 'Upgrade: websocket' : $response")))
+
+      def validateConnection: Stream[F,Unit] =
+        response.headers.collectFirst {
+          case Connection(ids) if ids.exists(_.equalsIgnoreCase("upgrade")) => emit(())
+        }.getOrElse(fail(new Throwable(s"WebSocket response must contain header 'Connection: Upgrade' : $response")))
 
       def validateProtocols: Stream[F,Unit] = {
         val received =
@@ -451,7 +481,7 @@ object WebSocket {
             case `Sec-WebSocket-Protocol`(protocols) => protocols
           }.getOrElse(Nil)
 
-        if (expected.toSet != received.toSet) fail(new Throwable(s"Websocket protocols do not match. Expected $expected, received: $received"))
+        if (expected.diff(received).nonEmpty) fail(new Throwable(s"Websocket protocols do not match. Expected $expected, received: $received"))
         else emit(())
       }
 
@@ -466,14 +496,15 @@ object WebSocket {
             case `Sec-WebSocket-Extensions`(extensions) => extensions
           }.getOrElse(Nil)
 
-        if (expected.toSet != received.toSet) fail(new Throwable(s"Websocket extensions do not match. Expected $expected, received: $received"))
+        if (expected.diff(received).nonEmpty)  fail(new Throwable(s"Websocket extensions do not match. Expected $expected, received: $received"))
         else emit(())
       }
 
       if (response.status != HttpStatusCode.SwitchingProtocols) emit(Some(response))
       else {
         for {
-          _ <- validateVersion
+          _ <- validateUpgrade
+          _ <- validateConnection
           _ <- validateFingerPrint
           _ <- validateProtocols
           _ <- validateExtensions
