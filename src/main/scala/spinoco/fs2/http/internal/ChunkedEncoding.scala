@@ -26,7 +26,7 @@ object ChunkedEncoding {
           case Left(header) =>
             val nh = header ++ bv
             val endOfheader = nh.indexOfSlice(`\r\n`)
-            if (endOfheader == 0) go(expect)(h.push(ByteVectorChunk(bv.drop(`\r\n`.size)))) //strip any leading crlf on header
+            if (endOfheader == 0) go(expect)(h.push(ByteVectorChunk(bv.drop(`\r\n`.size)))) //strip any leading crlf on header, as this starts with /r/n
             else if (endOfheader < 0 && nh.size > maxChunkHeaderSize) Pull.fail(new Throwable(s"Failed to get Chunk header. Size exceeds max($maxChunkHeaderSize) : ${nh.size} ${nh.decodeUtf8}"))
             else if (endOfheader < 0) go(Left(nh))(h)
             else {
@@ -59,7 +59,7 @@ object ChunkedEncoding {
     */
   def encode[F[_]]:Pipe[F,Byte,Byte] = {
     def encodeChunk(bv:ByteVector):Chunk[Byte] = {
-      ByteVectorChunk(ByteVector.view(bv.size.toHexString.toUpperCase.getBytes) ++ `\r\n` ++ bv)
+      ByteVectorChunk(ByteVector.view(bv.size.toHexString.toUpperCase.getBytes) ++ `\r\n` ++ bv ++ `\r\n` )
     }
     _.mapChunks { ch => encodeChunk(chunk2ByteVector(ch)) } ++ Stream.chunk(lastChunk)
   }
@@ -69,10 +69,10 @@ object ChunkedEncoding {
   /** yields to size of header in case the chunked header was succesfully parsed, else yields to None **/
   private def readChunkedHeader(hdr:ByteVector):Option[Long] = {
     hdr.decodeUtf8.right.toOption.flatMap { s =>
-      val parts = s.split(':')
-      if (parts.size < 1) None
+      val parts = s.split(';') // lets ignore any extensions
+      if (parts.isEmpty) None
       else {
-        try { Some(java.lang.Long.parseLong(parts(0),16))}
+        try { Some(java.lang.Long.parseLong(parts(0).trim,16))}
         catch { case t: Throwable => None }
       }
     }
