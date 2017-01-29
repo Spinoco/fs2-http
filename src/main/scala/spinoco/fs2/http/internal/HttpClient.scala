@@ -6,9 +6,12 @@ import fs2._
 import fs2.io.tcp.Socket
 import fs2.util.Async
 import scodec.{Codec, Decoder, Encoder}
+import spinoco.fs2.http.sse.{SSEDecoder, SSEEncoding}
 import spinoco.fs2.http.websocket.{Frame, WebSocket, WebSocketRequest}
 import spinoco.fs2.http.{HttpRequest, HttpResponse}
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
+import spinoco.protocol.http.header._
+import spinoco.protocol.http.header.value.MediaType
 
 import scala.concurrent.duration._
 
@@ -44,7 +47,7 @@ trait HttpClient[F[_]] {
     */
   def request(
      request: HttpRequest[F]
-     , chunkSize: Int = 10*1024
+     , chunkSize: Int = 32*1024
      , maxResponseHeaderSize: Int = 4096
      , timeout: Duration = 5.seconds
   ):Stream[F,HttpResponse[F]]
@@ -73,7 +76,7 @@ trait HttpClient[F[_]] {
      request: WebSocketRequest
      , pipe: Pipe[F, Frame[I], Frame[O]]
      , maxResponseHeaderSize: Int = 4096
-     , chunkSize: Int = 256 * 1024
+     , chunkSize: Int = 32 * 1024
      , maxFrameSize: Int = 1024*1024
   )(
    implicit
@@ -81,6 +84,19 @@ trait HttpClient[F[_]] {
     , W: Encoder[O]
     , S: Scheduler
   ): Stream[F, Option[HttpResponseHeader]]
+
+  /**
+    * Reads SSE encoded stream of data from the server.
+    *
+    * @param request                  Request to server. Note that this must be `GET` request.
+    * @param maxResponseHeaderSize    Max size of expected response header
+    * @param chunkSize                Max size of the chunk
+    */
+  def sse[A](
+    request: HttpRequest[F]
+    , maxResponseHeaderSize: Int = 4096
+    , chunkSize: Int = 32 * 1024
+  )(implicit D: SSEDecoder[A]): Stream[F, A]
 
 }
 
@@ -117,6 +133,15 @@ trait HttpClient[F[_]] {
         , maxFrameSize: Int
       )(implicit R: Decoder[I], W: Encoder[O], S: Scheduler): Stream[F, Option[HttpResponseHeader]] =
         WebSocket.client(request,pipe,maxResponseHeaderSize,chunkSize,maxFrameSize, requestCodec, responseCodec)
+
+
+      def sse[A](rq: HttpRequest[F], maxResponseHeaderSize: Int, chunkSize: Int)(implicit D: SSEDecoder[A]): Stream[F, A] =
+        request(rq, chunkSize, maxResponseHeaderSize, Duration.Inf).flatMap { resp =>
+          if (resp.header.headers.exists { case `Content-Type`(ct) => ct.mediaType == MediaType.`text/event-stream`  })
+            Stream.fail(new Throwable(s"Received response is not SSE: $resp"))
+          else
+            resp.body through SSEEncoding.decodeA[F, A]
+        }
     }
   }
 

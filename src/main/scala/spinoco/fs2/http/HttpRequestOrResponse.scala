@@ -1,5 +1,6 @@
 package spinoco.fs2.http
 
+
 import fs2.util.Catchable
 import fs2.{Stream, _}
 import scodec.Attempt.{Failure, Successful}
@@ -8,7 +9,8 @@ import spinoco.fs2.http.body.{BodyDecoder, BodyEncoder, StreamBodyEncoder}
 import spinoco.fs2.interop.scodec.ByteVectorChunk
 import spinoco.protocol.http._
 import header._
-import header.value.ContentType
+import header.value.{ContentType, MediaType}
+import spinoco.fs2.http.sse.{SSEEncoder, SSEEncoding}
 
 
 /** common request/response methods **/
@@ -89,7 +91,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
   def chunkedEncoding: Self =
     updateHeaders(withHeaders(internal.swapHeader(`Transfer-Encoding`(List("chunked")))))
 
-  private def withHeaders[A](f: List[HttpHeader] => A): A = self match {
+  protected def withHeaders[A](f: List[HttpHeader] => A): A = self match {
     case HttpRequest(_,_,header,_) => f(header.headers)
     case HttpResponse(header, _) => f(header.headers)
   }
@@ -233,6 +235,12 @@ final case class HttpResponse[F[_]](
 
   protected def updateHeaders(headers: List[HttpHeader]): Self =
     self.copy(header= self.header.copy(headers = headers))
+
+  /** encodes supplied stream of `A` as SSE stream in body **/
+  def sseBody[A](in: Stream[F, A])(implicit E: SSEEncoder[A]): Self =
+     self
+     .updateBody(in through SSEEncoding.encodeA[F, A])
+     .updateHeaders(withHeaders(internal.swapHeader(`Content-Type`(ContentType(MediaType.`text/event-stream`, None, None)))))
 }
 
 
