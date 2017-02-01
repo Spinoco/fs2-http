@@ -12,7 +12,7 @@ object HttpClientApp extends App {
 
   http.client[Task]().flatMap { httpClient =>
 
-    httpClient.request(HttpRequest.get(Uri.http("www.spinoco.com", "/"))).flatMap { resp =>
+    httpClient.request(HttpRequest.get(Uri.https("www.google.cz", "/"))).flatMap { resp =>
       Stream.eval(resp.bodyAsString)
     }.runLog.map {
       println

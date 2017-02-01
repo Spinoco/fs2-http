@@ -126,6 +126,11 @@ final case class HttpRequest[F[_]](
     self.copy(header = self.header.copy(method = method))
   }
 
+  def isSecure: Boolean = scheme match {
+    case HttpScheme.HTTPS | HttpScheme.WSS => true
+    case _ => false
+  }
+
   protected def updateBody(body: Stream[F, Byte]): Self =
     self.copy(body = body)
 

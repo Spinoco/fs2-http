@@ -3,7 +3,7 @@ package spinoco.fs2
 import java.net.InetSocketAddress
 import java.nio.channels.AsynchronousChannelGroup
 
-import fs2.Stream
+import fs2.{Strategy, Stream}
 import fs2.util.Async
 import scodec.Codec
 import spinoco.fs2.http.internal.{HttpClient, HttpServer}
@@ -64,11 +64,13 @@ package object http {
     *
     * @param requestCodec    Codec used to decode request header
     * @param responseCodec   Codec used to encode response header
+    * @param sslStrategy     Strategy used to perform blocking SSL operations
     */
   def client[F[_]](
    requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
    , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
+   , sslStrategy: Strategy = Strategy.fromCachedDaemonPool("fs2-http-ssl")
   )(implicit AG: AsynchronousChannelGroup, F: Async[F]):F[HttpClient[F]] =
-    HttpClient(requestCodec, responseCodec)
+    HttpClient(requestCodec, responseCodec, sslStrategy)
 
 }
