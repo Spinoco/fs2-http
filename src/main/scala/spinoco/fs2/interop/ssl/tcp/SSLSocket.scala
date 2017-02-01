@@ -138,20 +138,24 @@ object SSLSocket {
     )(implicit F: Async[F]): F[Unit] = {
 
       def go(bytes: Chunk[Byte]): F[Unit] = {
-        writeSemaphore.increment *>
-        sslEngine.wrap(bytes).flatMap { result =>
+        writeSemaphore.increment *> {
+        sslEngine.wrapAvailable.flatMap { wrapAvailable =>
+        sslEngine.wrap(bytes.take(wrapAvailable)).flatMap { result =>
         (if (result.output.nonEmpty) socket.write(result.output, timeout) else F.pure(())) *>
         writeSemaphore.decrement *> {
           if (result.closed) F.pure(())
           else {
-            if (result.handshake.isEmpty) F.pure(()) // done
+            if (result.handshake.isEmpty) {
+              if (wrapAvailable >= bytes.size) F.pure(())
+              else go(bytes.drop(wrapAvailable))
+            }
             else {
               // after succesfull handshake, lets again perform wrap, to make sure all our bytes are written through
-              performHandshake(socket, sslEngine, statusRef, timeout, writeSemaphore, readSemaphore) *> go(EmptyBytes)
+              performHandshake(socket, sslEngine, statusRef, timeout, writeSemaphore, readSemaphore) *> go(bytes.drop(wrapAvailable))
             }
           }
         }}
-      }
+      }}}
 
       go(bytes)
     }
@@ -187,7 +191,8 @@ object SSLSocket {
         acquireFromBuffer(maxSize, statusRef).flatMap { fromBuffer =>
           if (fromBuffer.nonEmpty) readSemaphore.decrement.as(Some(fromBuffer))
           else {
-            socket.read(maxSize).flatMap {
+            sslEngine.unwrapAvailable.flatMap { unwrapAvailable =>
+            socket.read(maxSize min unwrapAvailable).flatMap {
               case None => readSemaphore.decrement.as(None)
               case Some(bytes) =>
                 sslEngine.unwrap(bytes).flatMap { result =>
@@ -208,7 +213,7 @@ object SSLSocket {
                     }
                   }
                 }
-            }
+            }}
           }
         }
       }
@@ -282,27 +287,37 @@ object SSLSocket {
       // if unwrap is needed then `unwrap` is invoked
       // note that this is guarded by write semaphore for the wrap and write operation to assure we don't interfere with other write
       def wrap: F[Unit] = {
-        sslEngine.wrap(EmptyBytes).flatMap { result =>
-        (if (result.output.nonEmpty) socket.write(result.output, handshakeTimeout) else F.pure(())) *> { 
-          if (result.closed) release // we are done with SSL
-          else {
-            result.handshake match {
-              case None => F.pure(())
-              case Some(handshake) => handshake match {
-                case SSLEngine.MoreData.WRAP => wrap
-                case SSLEngine.MoreData.UNWRAP => unwrap(EmptyBytes)
-                case SSLEngine.MoreData.RECEIVE_UNWRAP => receiveUnwrap
+        def send(data: Vector[Chunk[Byte]]): F[Unit] = {
+          val bytes = Chunk.concatBytes(data)
+          if (bytes.nonEmpty) socket.write(bytes, handshakeTimeout)
+          else F.pure(())
+        }
+
+        def go(acc: Vector[Chunk[Byte]]): F[Unit] = {
+          sslEngine.wrap(EmptyBytes).flatMap { result =>
+            if (result.closed) send(acc :+ result.output) *> release // we are done with SSL
+            else {
+              result.handshake match {
+                case None => send(acc :+ result.output)
+                case Some(handshake) => handshake match {
+                  case SSLEngine.MoreData.WRAP => go(acc :+ result.output)
+                  case SSLEngine.MoreData.UNWRAP => send(acc :+ result.output) *> unwrap(EmptyBytes)
+                  case SSLEngine.MoreData.RECEIVE_UNWRAP => send(acc :+ result.output) *> receiveUnwrap
+                }
               }
             }
           }
-        }}
+        }
+        go(Vector.empty)
       }
 
+      // tries to receive more encrypted data and then performs unwrap
       def receiveUnwrap: F[Unit] = {
-        socket.read(32*1024, handshakeTimeout).flatMap {
+        sslEngine.unwrapAvailable.flatMap { available =>
+        socket.read(available, handshakeTimeout).flatMap {
           case None => F.pure(())
           case Some(bytes) => unwrap(bytes)
-        }
+        }}
       }
 
       // performs unwrap

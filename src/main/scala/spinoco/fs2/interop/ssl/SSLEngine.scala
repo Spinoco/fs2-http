@@ -6,7 +6,6 @@ import javax.net.ssl.SSLEngineResult
 import javax.net.{ssl => jns}
 
 import fs2._
-import fs2.async.mutable.Semaphore
 import fs2.util.Async.Ref
 import fs2.util._
 import fs2.util.syntax._
@@ -14,7 +13,11 @@ import fs2.util.syntax._
 
 
 /**
-  * Helper to establish asynchornous infterface above [[jns.SSLEngine]]
+  * Helper to establish asynchronous interface around [[jns.SSLEngine]]
+  *
+  * Please note that all operations here are not safe to be invoked concurrently.
+  * User of this interface must assure that any wrapXXX or unwrapXX are not called concurrently.
+  *
   */
 trait SSLEngine[F[_]] {
 
@@ -55,6 +58,12 @@ trait SSLEngine[F[_]] {
 
   /** Outbound stream (to remote party) is done, and no more data will be sent **/
   def closeOutbound: F[Unit]
+
+  /** available space in wrap buffer **/
+  def wrapAvailable: F[Int]
+
+  /** available space in unwrap buffer **/
+  def unwrapAvailable: F[Int]
 
 }
 
@@ -102,9 +111,7 @@ object SSLEngine {
     }
 
 
-    async.semaphore(1).flatMap { wrapSemaphore =>
     F.refOf(mkWrapBuffers).flatMap  { wrapBuffers =>
-    async.semaphore(1).flatMap  { unwrapSemaphore =>
     F.refOf(mkUnWrapBuffers).map { unwrapBuffers =>
 
       new SSLEngine[F] {
@@ -114,10 +121,10 @@ object SSLEngine {
         }
 
         def wrap(bytes: Chunk[Byte]): F[Result] =
-          impl.wrap(engine, bytes, wrapBuffers, wrapSemaphore)
+          impl.wrap(engine, bytes, wrapBuffers)
 
         def unwrap(bytes: Chunk[Byte]): F[Result] =
-          impl.unwrap(engine, bytes, unwrapBuffers, unwrapSemaphore)
+          impl.unwrap(engine, bytes, unwrapBuffers)
 
         def closeInbound: F[Unit] = F.delay {
           engine.closeInbound()
@@ -126,8 +133,15 @@ object SSLEngine {
         def closeOutbound: F[Unit] = F.delay {
           engine.closeOutbound()
         }
+
+        def wrapAvailable: F[Int] =
+          wrapBuffers.get.map(_._1.remaining())
+
+        def unwrapAvailable: F[Int] =
+          unwrapBuffers.get.map(_._1.remaining())
+
       }
-    }}}}
+    }}
 
 
   }
@@ -159,15 +173,13 @@ object SSLEngine {
       *                   The first buffer is buffer with application data. Second buffer is buffer with encrypted data.
       *                   Second buffer is always empty, when this finishes, while first buffer may contain data to be
       *                   used at next invocation of wrap.
-      * @param sem        A semaphore that guards this wrap attempt
       */
     def wrap[F[_]](
       engine: jns.SSLEngine
       , bytes: Chunk[Byte]
       , buffers: Ref[F, (ByteBuffer, ByteBuffer)]
-      , sem: Semaphore[F]
     )(implicit F: Async[F], S: Strategy): F[Result] =
-      wrapUnwrap(engine,bytes,buffers,sem)(EngineOpName.WRAP)
+      wrapUnwrap(engine,bytes,buffers)(EngineOpName.WRAP)
 
     /**
       * Perform `un-wrap` operation on engine.
@@ -188,15 +200,13 @@ object SSLEngine {
       *                   Second buffer is always empty, when this finishes, while first buffer may contain data to be
       *                   used at next invocation of unwrap.
       *
-      * @param sem        A semaphore that guards this wrap attempt
       */
     def unwrap[F[_]](
       engine: jns.SSLEngine
       , bytes: Chunk[Byte]
       , buffers: Ref[F, (ByteBuffer, ByteBuffer)]
-      , sem: Semaphore[F]
     )(implicit F: Async[F], S: Strategy): F[Result] =
-      wrapUnwrap(engine,bytes,buffers,sem)(EngineOpName.UNWRAP)
+      wrapUnwrap(engine,bytes,buffers)(EngineOpName.UNWRAP)
 
 
     /** helper to perform wrap/unwrap **/
@@ -204,7 +214,6 @@ object SSLEngine {
     engine: jns.SSLEngine
     , bytes: Chunk[Byte]
     , buffers: Ref[F, (ByteBuffer, ByteBuffer)]
-    , sem: Semaphore[F]
     )(
       op: EngineOpName.Value
     )(implicit F: Async[F], S: Strategy): F[Result] = {
@@ -212,35 +221,27 @@ object SSLEngine {
       import SSLEngineResult.HandshakeStatus._
 
       buffers.get.flatMap { case (origInput, origOutput) =>
-        println(s"XXXY INCOMING: $op: ${bytes.size}")
-        println(s"XXXY BUFFERS $op : in: $origInput, $origOutput")
+
         val in = fillBuffer(bytes, origInput)
         def go(inBuffer: ByteBuffer, outBuffer: ByteBuffer): F[Result] = {
 
+          def release(hs: Option[MoreData.Value]):F[Result] = F.suspend {
+            // adjust buffers to have them ready for next wrap/unwrap
+            // output buffer is always drained,
+            // from input buffer we remove consumed bytes and make it ready for next write
+            inBuffer.compact()
+            val out = buffer2Bytes(outBuffer)
+            val result = Result(out, hs, closed = false)
 
-
-          def release(hs: Option[MoreData.Value]):F[Result] = {
-            F.delay {
-              // adjust buffers to have them ready for next wrap/unwrap
-              // output buffer is always drained,
-              // from input buffer we remove consumed bytes and make it ready for next write
-              inBuffer.compact()
-              val out = buffer2Bytes(outBuffer)
-              Result(out, hs, closed = false)
-            }.flatMap { result =>
-              println(s"XXXG RESULT $op: (${result.output.size}) ${result.handshake} ")
-              if (origInput.eq(inBuffer) && origOutput.eq(outBuffer)) { println(s"XXXY ready for next $op: IN: $inBuffer, OUT: $outBuffer" ); F.pure(result) }
-              else { println(s"XXXY ready for next $op (MOD): IN: $inBuffer, OUT: $outBuffer" ); buffers.modify(_ => inBuffer -> outBuffer).as(result) }
-            }
+            if (origInput.eq(inBuffer) && origOutput.eq(outBuffer)) F.pure(result)
+            else buffers.modify(_ => inBuffer -> outBuffer).as(result)
           }
 
-          println(s"XXXY about to  $op: IN: $inBuffer, OUT: $outBuffer")
           val result = op match {
             case EngineOpName.UNWRAP => engine.unwrap(inBuffer, outBuffer)
             case EngineOpName.WRAP => engine.wrap(inBuffer, outBuffer)
           }
 
-          println(s"XXXY just done $op: IN: $inBuffer, OUT: $outBuffer, RSLT: $result")
 
           result.getStatus match {
             case BUFFER_OVERFLOW =>
@@ -273,7 +274,6 @@ object SSLEngine {
                 case NOT_HANDSHAKING | FINISHED =>
                   release(None)
               }
-
 
             case CLOSED =>
               release(None).map { _.copy(closed = true) }
