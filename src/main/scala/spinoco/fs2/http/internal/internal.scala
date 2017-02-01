@@ -2,13 +2,17 @@ package spinoco.fs2.http
 
 import java.net.InetSocketAddress
 import java.util.concurrent.TimeoutException
+import javax.net.ssl.SSLContext
 
 import fs2.Stream._
 import fs2.io.tcp.Socket
 import fs2.util.Async
+import fs2.util.syntax._
 import fs2.{Stream, _}
 import scodec.bits.ByteVector
 import spinoco.fs2.interop.scodec.ByteVectorChunk
+import spinoco.fs2.interop.ssl.SSLEngine
+import spinoco.fs2.interop.ssl.tcp.SSLSocket
 import spinoco.protocol.http.{HostPort, HttpScheme}
 import spinoco.protocol.http.header.{HttpHeader, `Transfer-Encoding`}
 
@@ -121,6 +125,14 @@ package object internal {
     }
 
     go(timeout)
+  }
+
+  /** creates a function that lifts supplied socket to secure socket **/
+  def liftToSecure[F[_]](sslStrategy: => Strategy, sslContext: => SSLContext)(socket: Socket[F])(implicit F: Async[F]): F[Socket[F]] = {
+    F.delay { sslContext.createSSLEngine()}.flatMap { jengine =>
+      SSLEngine.client(jengine)(F, sslStrategy).flatMap { engine =>
+        SSLSocket(socket, engine)
+      }}
   }
 
 }

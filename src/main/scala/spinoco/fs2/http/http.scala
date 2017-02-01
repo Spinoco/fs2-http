@@ -2,6 +2,7 @@ package spinoco.fs2
 
 import java.net.InetSocketAddress
 import java.nio.channels.AsynchronousChannelGroup
+import javax.net.ssl.SSLContext
 
 import fs2.{Strategy, Stream}
 import fs2.util.Async
@@ -69,8 +70,9 @@ package object http {
   def client[F[_]](
    requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
    , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
-   , sslStrategy: Strategy = Strategy.fromCachedDaemonPool("fs2-http-ssl")
+   , sslStrategy: => Strategy = Strategy.fromCachedDaemonPool("fs2-http-ssl")
+   , sslContext: => SSLContext = { val ctx = SSLContext.getInstance("TLS"); ctx.init(null,null,null); ctx }
   )(implicit AG: AsynchronousChannelGroup, F: Async[F]):F[HttpClient[F]] =
-    HttpClient(requestCodec, responseCodec, sslStrategy)
+    HttpClient(requestCodec, responseCodec, sslStrategy, sslContext)
 
 }

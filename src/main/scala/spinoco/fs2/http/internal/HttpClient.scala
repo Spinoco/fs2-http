@@ -6,13 +6,10 @@ import javax.net.ssl.SSLContext
 import fs2._
 import fs2.io.tcp.Socket
 import fs2.util.Async
-import fs2.util.syntax._
 import scodec.{Codec, Decoder, Encoder}
 import spinoco.fs2.http.sse.{SSEDecoder, SSEEncoding}
 import spinoco.fs2.http.websocket.{Frame, WebSocket, WebSocketRequest}
 import spinoco.fs2.http.{HttpRequest, HttpResponse}
-import spinoco.fs2.interop.ssl.SSLEngine
-import spinoco.fs2.interop.ssl.tcp.SSLSocket
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
 import spinoco.protocol.http.header._
 import spinoco.protocol.http.header.value.MediaType
@@ -113,12 +110,16 @@ trait HttpClient[F[_]] {
      * @param requestCodec    Codec used to decode request header
      * @param responseCodec   Codec used to encode response header
      * @param sslStrategy     Strategy used when communication with SSL (https or wss)
+     * @param sslContext      SSL Context to use with SSL Client (https, wss)
      */
   def apply[F[_]](
     requestCodec: Codec[HttpRequestHeader]
     , responseCodec: Codec[HttpResponseHeader]
-    , sslStrategy: Strategy
+    , sslStrategy: => Strategy
+    , sslContext: => SSLContext
   )(implicit AG: AsynchronousChannelGroup, F: Async[F]):F[HttpClient[F]] = F.delay {
+    lazy val sslCtx = sslContext
+    lazy val sslS = sslStrategy
 
     new HttpClient[F] {
       def request(
@@ -131,17 +132,7 @@ trait HttpClient[F[_]] {
         io.tcp.client(address)
         .evalMap { socket =>
           if (!request.isSecure) F.pure(socket)
-          else {
-            val ctx = SSLContext.getInstance("TLS")
-            ctx.init(null, null, null)
-            F.delay {
-              val engine =  ctx.createSSLEngine()
-              engine
-            }.flatMap { jengine =>
-            SSLEngine.client(jengine)(F, sslStrategy).flatMap { engine =>
-              SSLSocket(socket, engine)
-            }}
-          }
+          else liftToSecure(sslS, sslCtx)(socket)
         }
         .flatMap { impl.request(request, chunkSize, maxResponseHeaderSize, timeout, requestCodec, responseCodec ) }}
       }
@@ -153,7 +144,7 @@ trait HttpClient[F[_]] {
         , chunkSize: Int
         , maxFrameSize: Int
       )(implicit R: Decoder[I], W: Encoder[O], S: Scheduler): Stream[F, Option[HttpResponseHeader]] =
-        WebSocket.client(request,pipe,maxResponseHeaderSize,chunkSize,maxFrameSize, requestCodec, responseCodec)
+        WebSocket.client(request,pipe,maxResponseHeaderSize,chunkSize,maxFrameSize, requestCodec, responseCodec, sslS, sslCtx)
 
 
       def sse[A](rq: HttpRequest[F], maxResponseHeaderSize: Int, chunkSize: Int)(implicit D: SSEDecoder[A]): Stream[F, A] =

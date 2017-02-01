@@ -10,6 +10,8 @@ object HttpClientApp extends App {
 
   import spinoco.fs2.http.Resources._
 
+
+
   http.client[Task]().flatMap { httpClient =>
 
     httpClient.request(HttpRequest.get(Uri.https("www.google.cz", "/"))).flatMap { resp =>

@@ -2,6 +2,7 @@ package spinoco.fs2.http.websocket
 
 
 import java.nio.channels.AsynchronousChannelGroup
+import javax.net.ssl.SSLContext
 
 import fs2._
 import fs2.async.mutable.Queue
@@ -92,6 +93,8 @@ object WebSocket {
     , maxFrameSize: Int = 1024*1024
     , requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
     , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
+    , sslStrategy: => Strategy = Strategy.fromCachedDaemonPool("fs2-http-ssl")
+    , sslContext: => SSLContext = { val ctx = SSLContext.getInstance("TLS"); ctx.init(null,null,null); ctx }
   )(
     implicit
     R: Decoder[I]
@@ -103,7 +106,9 @@ object WebSocket {
     import spinoco.fs2.http.internal._
     import Stream._
     eval(addressForRequest(if (request.secure) HttpScheme.WSS else HttpScheme.WS, request.hostPort)).flatMap { address =>
-    io.tcp.client(address, receiveBufferSize = receiveBufferSize).flatMap { socket =>
+    io.tcp.client(address, receiveBufferSize = receiveBufferSize)
+    .evalMap { socket => if (request.secure) liftToSecure(sslStrategy, sslContext)(socket) else F.pure(socket) }
+    .flatMap { socket =>
       val (header, fingerprint) = impl.createRequestHeaders(request.header)
       requestCodec.encode(header) match {
         case Failure(err) => Stream.fail(new Throwable(s"Failed to encode websocket request: $err"))
