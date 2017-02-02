@@ -1,0 +1,19 @@
+
+language : scala
+
+scala:
+  - 2.11.8
+  - 2.12.0
+
+cache:
+  directories:
+  - $HOME/.ivy2
+  - $HOME/.sbt
+
+jdk:
+  - oraclejdk8
+
+script:
+  - sbt ++$TRAVIS_SCALA_VERSION -Dfile.encoding=UTF8 "project fs2Http" test
+
+
