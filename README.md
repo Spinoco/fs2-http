@@ -1,6 +1,6 @@
 # fs2-http
 
-Minimalistic client with scala fs2 library. 
+Minimalistic yet powerfull http client and server with scala fs2 library. 
 
 
 ## Overview
