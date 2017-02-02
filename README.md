@@ -101,7 +101,7 @@ Websocket uses `Frame\[A\]` to send and receive data. Frame is used to tag frame
 
 ### HTTP Server
 
-fs2 has support to build simple yet fully functional HTTP server. Following construct builds the server: 
+fs2-http has support to build simple yet fully functional HTTP server. Following construct builds very simple echo server: 
 
 ```
  def service(request: HttpRequestHeader, body: Stream[Task,Byte]): Stream[Task,HttpResponse[Task]] = {
