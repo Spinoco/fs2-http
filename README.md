@@ -26,6 +26,10 @@ functional library, such as scalaz or cats.
 
 Add this to your sbt build file : 
 
+```
+libraryDependencies += "com.spinoco" %% "fs2-http" % "0.1.1-SNAPSHOT" 
+```
+
 
 ## Usage
 
