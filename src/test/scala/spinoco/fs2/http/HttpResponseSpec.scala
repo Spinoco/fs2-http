@@ -7,7 +7,7 @@ import scodec.Attempt
 import spinoco.protocol.http.header._
 import spinoco.protocol.http.codec.HttpResponseHeaderCodec
 import spinoco.protocol.http.{HttpResponseHeader, HttpStatusCode}
-import spinoco.fs2.http.internal._
+import spinoco.fs2.http.util.chunk2ByteVector
 import spinoco.protocol.http.header.value.{ContentType, HttpCharset, MediaType}
 
 

@@ -6,25 +6,24 @@ import org.scalacheck.Prop._
 import scodec.bits.ByteVector
 import spinoco.fs2.http.sse.SSEMessage.SSEData
 import spinoco.fs2.interop.scodec.ByteVectorChunk
-
-//import spinoco.fs2.http.internal
+import spinoco.fs2.http.util.chunk2ByteVector
 
 object SSEEncodingSpec extends Properties("SSEEncoding") {
- // import SSEMessage._
 
-//  property("encode") = secure {
-//    Stream(
-//      SSEMessage.SSEData(Seq("data1"), None, None)
-//      , SSEMessage.SSEData(Seq("data2", "data3"), None, None)
-//      , SSEMessage.SSEData(Seq("data4"), Some("event1"), None)
-//      , SSEMessage.SSEData(Seq("data5"), None, Some("id1"))
-//      , SSEMessage.SSEData(Seq("data6"), Some("event2"), Some("id2"))
-//    ).through(SSEEncoding.encode[Task]).chunks.runLog.map { _ map internal.chunk2ByteVector reduce (_ ++ _) decodeUtf8  }.unsafeRun ?=
-//    Right(
-//    "data: data1\n\ndata: data2\ndata: data3\n\nevent: event1\ndata: data4\n\ndata: data5\nid: id1\n\nevent: event2\ndata: data6\nid: id2\n\n"
-//    )
-//
-//  }
+
+  property("encode") = secure {
+    Stream(
+      SSEMessage.SSEData(Seq("data1"), None, None)
+      , SSEMessage.SSEData(Seq("data2", "data3"), None, None)
+      , SSEMessage.SSEData(Seq("data4"), Some("event1"), None)
+      , SSEMessage.SSEData(Seq("data5"), None, Some("id1"))
+      , SSEMessage.SSEData(Seq("data6"), Some("event2"), Some("id2"))
+    ).through(SSEEncoding.encode[Task]).chunks.runLog.map { _ map chunk2ByteVector reduce (_ ++ _) decodeUtf8  }.unsafeRun ?=
+    Right(
+    "data: data1\n\ndata: data2\ndata: data3\n\nevent: event1\ndata: data4\n\ndata: data5\nid: id1\n\nevent: event2\ndata: data6\nid: id2\n\n"
+    )
+
+  }
 
   property("decode.example.1") = secure {
 

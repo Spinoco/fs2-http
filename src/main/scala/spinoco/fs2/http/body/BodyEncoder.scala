@@ -2,6 +2,7 @@ package spinoco.fs2.http.body
 
 import scodec.bits.ByteVector
 import scodec.{Attempt, Encoder, Err}
+import spinoco.protocol.http.Uri
 import spinoco.protocol.http.header.value.{ContentType, HttpCharset, MediaType}
 
 /**
@@ -42,5 +43,9 @@ object BodyEncoder {
 
   def forEncoder[A](tpe: ContentType)(codec: Encoder[A]):BodyEncoder[A] =
     BodyEncoder(tpe)(a => codec.encode(a).map(_.bytes))
+
+  /** encodes supplied query as application/x-www-form-urlencoded data **/
+  def `x-www-form-urlencoded`: BodyEncoder[Uri.Query] =
+    forEncoder(ContentType(MediaType.`application/x-www-form-urlencoded`, None, None))(Uri.Query.codec)
 
 }

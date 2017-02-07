@@ -3,6 +3,7 @@ package spinoco.fs2.http.internal
 import fs2._
 import scodec.bits.ByteVector
 import spinoco.fs2.interop.scodec.ByteVectorChunk
+import spinoco.fs2.http.util.chunk2ByteVector
 
 /**
   * Created by pach on 20/01/17.

@@ -18,6 +18,7 @@ import spinoco.protocol.http._
 import spinoco.protocol.http.header.value.{ContentType, HttpCharset, MediaType, ProductDescription}
 import spinoco.protocol.websocket.{OpCode, WebSocketFrame}
 import spinoco.protocol.websocket.codec.WebSocketFrameCodec
+import spinoco.fs2.http.util.chunk2ByteVector
 
 import scala.concurrent.duration._
 import scala.util.Random
@@ -255,7 +256,6 @@ object WebSocket {
       * @param maxFrameSize  Maximum size of the frame, including its header.
       */
     def decodeWebSocketFrame[F[_]](maxFrameSize: Int , flag: Boolean): Pipe[F, Byte, WebSocketFrame] = {
-      import spinoco.fs2.http.internal._
       // cuts necessary data for decoding the frame.
       // empty if the data couldn't be decoded yet
       def cutFrame(in:ByteVector): Option[ByteVector] = {

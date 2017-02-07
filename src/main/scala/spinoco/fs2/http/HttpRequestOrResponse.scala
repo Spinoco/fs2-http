@@ -10,6 +10,7 @@ import spinoco.fs2.interop.scodec.ByteVectorChunk
 import spinoco.protocol.http._
 import header._
 import header.value.{ContentType, MediaType}
+import scodec.bits.ByteVector
 import spinoco.fs2.http.sse.{SSEEncoder, SSEEncoding}
 
 
@@ -67,12 +68,16 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
     withHeaders { _.collectFirst { case `Content-Type`(ct) => ct } match {
       case None => F.pure(Attempt.failure(Err("Content type is not known")))
       case Some(ct) =>
-        F.map(self.body.chunks.map(internal.chunk2ByteVector).runLog) { bs =>
+        F.map(self.body.chunks.map(util.chunk2ByteVector).runLog) { bs =>
           if (bs.isEmpty) Attempt.failure(Err("Body is empty"))
           else D.decode(bs.reduce(_ ++ _), ct)
         }
     }}
   }
+
+  /** gets body as stream of byteVectors **/
+  def bodyAsByteVectorStream:Stream[F,ByteVector] =
+    self.body.chunks.map(util.chunk2ByteVector)
 
   /** decodes body as string with encoding supplied in ContentType **/
   def bodyAsString(implicit F: Catchable[F]): F[Attempt[String]] =
@@ -91,10 +96,22 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
   def chunkedEncoding: Self =
     updateHeaders(withHeaders(internal.swapHeader(`Transfer-Encoding`(List("chunked")))))
 
-  protected def withHeaders[A](f: List[HttpHeader] => A): A = self match {
+  def withHeaders[A](f: List[HttpHeader] => A): A = self match {
     case HttpRequest(_,_,header,_) => f(header.headers)
     case HttpResponse(header, _) => f(header.headers)
   }
+
+  /** appends supplied headers **/
+  def appendHeader(header: HttpHeader, headers: HttpHeader*): Self =
+    updateHeaders(withHeaders(_ ++ (header +: headers.toSeq)))
+
+  /** appends supplied headers. Unlike `appendHeader` headers are removed if they already exists **/
+  def withHeader(header : HttpHeader, headers: HttpHeader*): Self =
+    updateHeaders(withHeaders { current =>
+      val allNew = header +: headers
+      val allNewKeys = allNew.map(_.name.toLowerCase).toSet
+      current.filterNot(h => allNewKeys.contains(h.name.toLowerCase)) ++ allNew
+    })
 
   protected def updateBody(body: Stream[F, Byte]): Self
 
@@ -107,7 +124,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
 
 
 /**
-  * Model of Http Request
+  * Model of Http Request sent by client.
   *
   * @param host     Host/port where to perform the request to
   * @param header   Header of the request
@@ -136,6 +153,23 @@ final case class HttpRequest[F[_]](
 
   protected def updateHeaders(headers: List[HttpHeader]): Self =
     self.copy(header = self.header.copy(headers = headers))
+
+  /**
+    * Encodes query params to body as `application/x-www-form-urlencoded` content.
+    * That means instead of passing query as part of request, they are encoded as utf8 body.
+    * @return
+    */
+  def withQueryBodyEncoded(q:Uri.Query): Self =
+    withBody(q)(BodyEncoder.`x-www-form-urlencoded`)
+
+  def bodyAsQuery(implicit F: Catchable[F]):F[Attempt[Uri.Query]] =
+    bodyAs[Uri.Query](BodyDecoder.`x-www-form-urlencoded`, F)
+
+  /**
+    * Adds supplied query as param in the Uri
+    */
+  def withQuery(query:Uri.Query): Self =
+   self.copy(header = self.header.copy( query = query ))
 }
 
 object HttpRequest {

@@ -1,4 +1,4 @@
-package spinoco.fs2.http.internal
+package spinoco.fs2.http
 
 import java.nio.channels.AsynchronousChannelGroup
 import javax.net.ssl.SSLContext
@@ -7,12 +7,12 @@ import fs2._
 import fs2.io.tcp.Socket
 import fs2.util.Async
 import scodec.{Codec, Decoder, Encoder}
+import spinoco.fs2.http.internal.{addressForRequest, liftToSecure, readWithTimeout}
 import spinoco.fs2.http.sse.{SSEDecoder, SSEEncoding}
 import spinoco.fs2.http.websocket.{Frame, WebSocket, WebSocketRequest}
-import spinoco.fs2.http.{HttpRequest, HttpResponse}
-import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
 import spinoco.protocol.http.header._
 import spinoco.protocol.http.header.value.MediaType
+import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
 
 import scala.concurrent.duration._
 
@@ -158,7 +158,7 @@ trait HttpClient[F[_]] {
   }
 
 
-   private[internal] object impl {
+   private[http] object impl {
 
      def request[F[_]](
       request: HttpRequest[F]

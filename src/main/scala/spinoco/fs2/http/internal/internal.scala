@@ -15,6 +15,7 @@ import spinoco.fs2.interop.ssl.SSLEngine
 import spinoco.fs2.interop.ssl.tcp.SSLSocket
 import spinoco.protocol.http.{HostPort, HttpScheme}
 import spinoco.protocol.http.header.{HttpHeader, `Transfer-Encoding`}
+import spinoco.fs2.http.util.chunk2ByteVector
 
 import scala.concurrent.duration._
 import scala.reflect.ClassTag
@@ -30,17 +31,7 @@ package object internal {
 
   val `\r\n\r\n` = (`\r\n` ++ `\r\n`).compact
 
-  /**
-    * Converts Stream of chunks of bytes to stream of byteVector
-    */
-  def chunk2ByteVector(chunk: Chunk[Byte]): ByteVector = {
-    chunk match  {
-      case bv: ByteVectorChunk => bv.toByteVector
-      case other =>
-        val bs = other.toBytes
-        ByteVector(bs.values, bs.offset, bs.size)
-    }
-  }
+
 
   /** yields to true, if chunked encoding header is present **/
   def bodyIsChunked(headers:List[HttpHeader]):Boolean = {

@@ -1,4 +1,4 @@
-package spinoco.fs2.http.internal
+package spinoco.fs2.http
 
 import java.net.InetSocketAddress
 import java.nio.channels.AsynchronousChannelGroup
@@ -6,7 +6,6 @@ import java.nio.channels.AsynchronousChannelGroup
 import fs2._
 import fs2.util.Async
 import scodec.Codec
-import spinoco.fs2.http.{HttpRequest, HttpResponse, internal}
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader, HttpStatusCode}
 

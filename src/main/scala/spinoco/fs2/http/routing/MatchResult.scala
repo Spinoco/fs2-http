@@ -33,10 +33,15 @@ object MatchResult {
 
   case class Failed[F[_]](response: HttpResponse[F]) extends MatchResult[F, Nothing]
 
-  def NotFoundResponse[F[_]]: MatchResult[F,Nothing] = Failed(HttpResponse(HttpStatusCode.NotFound))
+  def success[A](a: A) : MatchResult[Nothing, A] = Success(a)
 
-  def MethodNotAllowed[F[_]]: MatchResult[F, Nothing] = Failed(HttpResponse(HttpStatusCode.MethodNotAllowed))
+  def reply(code: HttpStatusCode):MatchResult[Nothing,Nothing] =
+    Failed[Nothing](HttpResponse[Nothing](code))
 
-  def BadRequest[F[_]]: MatchResult[F, Nothing] = Failed(HttpResponse(HttpStatusCode.BadRequest))
+  val NotFoundResponse: MatchResult[Nothing,Nothing] = reply(HttpStatusCode.NotFound)
+
+  val MethodNotAllowed: MatchResult[Nothing, Nothing] = reply(HttpStatusCode.MethodNotAllowed)
+
+  val BadRequest: MatchResult[Nothing, Nothing] = reply(HttpStatusCode.BadRequest)
 
 }

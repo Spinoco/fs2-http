@@ -2,7 +2,8 @@ package spinoco.fs2.http.body
 
 import scodec.bits.ByteVector
 import scodec.{Attempt, Decoder, Err}
-import spinoco.protocol.http.header.value.{ContentType, HttpCharset}
+import spinoco.protocol.http.Uri
+import spinoco.protocol.http.header.value.{ContentType, HttpCharset, MediaType}
 
 
 trait BodyDecoder[A] {
@@ -29,5 +30,12 @@ object BodyDecoder {
       }
     }
   }
+
+  /** decodes body as query encoded as application/x-www-form-urlencoded data **/
+  val `x-www-form-urlencoded`: BodyDecoder[Uri.Query] =
+    forDecoder { ct =>
+      if (ct.mediaType == MediaType.`application/x-www-form-urlencoded`) Attempt.successful(Uri.Query.codec)
+      else Attempt.failure(Err(s"Unsupported content type : $ct"))
+    }
 
 }

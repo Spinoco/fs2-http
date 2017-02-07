@@ -10,7 +10,7 @@ import spinoco.protocol.http.header.value.{ContentType, HttpCharset, MediaType}
 
 
 object HttpRequestSpec extends Properties("HttpRequest") {
-  import spinoco.fs2.http.internal._
+  import spinoco.fs2.http.util.chunk2ByteVector
 
   property("encode") = secure {
 

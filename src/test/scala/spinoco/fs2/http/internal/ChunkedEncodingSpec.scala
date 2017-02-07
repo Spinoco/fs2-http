@@ -4,6 +4,7 @@ import fs2._
 import org.scalacheck.Properties
 import org.scalacheck.Prop._
 import scodec.bits.ByteVector
+import spinoco.fs2.http.util.chunk2ByteVector
 
 object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
 

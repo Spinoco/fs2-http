@@ -5,9 +5,8 @@ import java.nio.channels.AsynchronousChannelGroup
 import javax.net.ssl.SSLContext
 
 import fs2.{Strategy, Stream}
-import fs2.util.Async
+import fs2.util._
 import scodec.Codec
-import spinoco.fs2.http.internal.{HttpClient, HttpServer}
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 

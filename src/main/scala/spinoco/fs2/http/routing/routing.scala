@@ -1,15 +1,17 @@
 package spinoco.fs2.http
 
 import fs2._
-import fs2.util.{Catchable, Suspendable}
+import fs2.util.{Catchable, Lub1, Suspendable}
 import scodec.Attempt
-import scodec.bits.ByteVector
+import scodec.bits.Bases.Base64Alphabet
+import scodec.bits.{Bases, ByteVector}
 import shapeless.Typeable
 import spinoco.fs2.http.body.{BodyDecoder, StreamBodyDecoder}
 import spinoco.fs2.http.routing.MatchResult._
 import spinoco.fs2.http.routing.Matcher.{Eval, Match}
 import spinoco.protocol.http.header._
-import spinoco.protocol.http.{HttpMethod, HttpRequestHeader, Uri}
+import spinoco.protocol.http.{HttpMethod, HttpRequestHeader, HttpStatusCode, Uri}
+import spinoco.fs2.http.util.chunk2ByteVector
 
 
 
@@ -18,6 +20,7 @@ package object routing {
 
   /** tags bytes encoded as Base64Url **/
   sealed trait Base64Url
+
 
   /** converts supplied route to function that is handled over to server to perform the routing **/
   def route[F[_]](r:Route[F])(implicit F: Suspendable[F]):(HttpRequestHeader, Stream[F, Byte]) => Stream[F, HttpResponse[F]] = {
@@ -28,7 +31,7 @@ package object routing {
   }
 
   implicit def string2RequestMatcher(s:String): Matcher[Nothing, String] =
-    decodeAs(StringDecoder.stringInstance.filter(_ == s))
+    as(StringDecoder.stringInstance.filter(_ == s))
 
 
   /** matches supplied method **/
@@ -45,8 +48,8 @@ package object routing {
   val Options = method(HttpMethod.OPTIONS)
 
   /** matches to relative path in current context **/
-  def path[F[_]]: Matcher[F, Uri.Path] = {
-    Match[F, Uri.Path]{ (request, _) =>
+  def path: Matcher[Nothing, Uri.Path] = {
+    Match[Nothing, Uri.Path]{ (request, _) =>
       Success[Uri.Path](request.path.copy(initialSlash = false))
     }
   }
@@ -65,11 +68,18 @@ package object routing {
     go(matcher, matchers)
   }
 
+  /** matches if remaining path segments are empty **/
+  val empty : Matcher[Nothing, Unit] =
+    Match[Nothing, Unit] { (request, _) =>
+      if (request.path.segments.isEmpty) Success(())
+      else NotFoundResponse
+    }
+
   /** matches header of type `h` **/
   def header[H <: HttpHeader](implicit T: Typeable[H]): Matcher[Nothing, H] =
     Match[Nothing, H] { (request, _) =>
       request.headers.collectFirst(Function.unlift(T.cast)) match {
-        case None => BadRequest[Nothing]
+        case None => BadRequest
         case Some(h) => Success(h)
       }
     }
@@ -77,8 +87,8 @@ package object routing {
   /**
     * Matches if query contains `key` and that can be decoded to `A` via supplied decoder
     */
-  def param[F[_], A](key: String)(implicit decoder: StringDecoder[A]) : Matcher[F,A] =
-    Match[F, A] { (header, _) =>
+  def param[A](key: String)(implicit decoder: StringDecoder[A]) : Matcher[Nothing,A] =
+    Match[Nothing, A] { (header, _) =>
       header.query.params.collectFirst( Function.unlift { case (k, v) =>
         if (k == key) decoder.decode(v)
         else None
@@ -88,11 +98,20 @@ package object routing {
       }
     }
 
+  /** Decodes Base64 (Url) encoded binary data in parameter specified by `key` **/
+  def paramBase64(key: String, alphabet: Base64Alphabet = Bases.Alphabets.Base64Url): Matcher[Nothing, ByteVector] =
+    param[String](key).flatMap { s =>
+      ByteVector.fromBase64(s, alphabet) match {
+        case None => Matcher.respondWith(HttpStatusCode.BadRequest)
+        case Some(bv) => Matcher.success(bv)
+      }
+    }(Lub1.id[Nothing])
+
   /** decodes head of the path to `A` givne supplied decoder from string **/
-  def decodeAs[A](implicit decoder: StringDecoder[A]): Matcher[Nothing, A] =
+  def as[A](implicit decoder: StringDecoder[A]): Matcher[Nothing, A] =
     Match[Nothing, A] { (request, _) =>
       request.path.segments.headOption.flatMap(decoder.decode) match {
-        case None => NotFoundResponse[Nothing]
+        case None => NotFoundResponse
         case Some(a) => Success(a)
       }
     }
@@ -129,7 +148,7 @@ package object routing {
           F.map(s.chunks.runLog) { chunks =>
             val bytes =
               if (chunks.isEmpty) ByteVector.empty
-              else chunks.map(internal.chunk2ByteVector).reduce(_ ++ _)
+              else chunks.map(chunk2ByteVector).reduce(_ ++ _)
             D.decode(bytes, ct.value)
           }
         }}.flatMap {

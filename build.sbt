@@ -29,8 +29,8 @@ lazy val commonSettings = Seq(
      "org.scodec" %% "scodec-bits" % "1.1.2"
      , "org.scodec" %% "scodec-core" % "1.10.3"
      , "org.scalacheck" %% "scalacheck" % "1.13.4" % "test"
-     , "com.spinoco" %% "protocol-http" % "0.1.3"
-     , "com.spinoco" %% "protocol-websocket" % "0.1.3"
+     , "com.spinoco" %% "protocol-http" % "0.1.4-SNAPSHOT"
+     , "com.spinoco" %% "protocol-websocket" % "0.1.4-SNAPSHOT"
      , "co.fs2" %% "fs2-core" % "0.9.2"
      , "co.fs2" %% "fs2-io" % "0.9.2"
    ),
@@ -106,7 +106,7 @@ lazy val releaseSettings = Seq(
   releasePublishArtifactsAction := PgpKeys.publishSigned.value
 )
 
-lazy val fs2Http=
+lazy val `fs2-http`=
   project.in(file("./"))
   .settings(commonSettings)
   .settings(

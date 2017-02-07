@@ -4,7 +4,7 @@ import fs2._
 import scodec.Attempt
 import scodec.bits.ByteVector
 import spinoco.fs2.interop.scodec.ByteVectorChunk
-import spinoco.fs2.http.internal
+import spinoco.fs2.http.util.chunk2ByteVector
 
 import scala.util.Try
 import scala.concurrent.duration._
@@ -48,7 +48,6 @@ object SSEEncoding {
     * Decodes stream of bytes to SSE Messages
     */
   def decode[F[_]]: Pipe[F, Byte, SSEMessage] = {
-    import internal._
 
     // drops initial Byte Order Mark, if present
     def dropInitial(buff:ByteVector): Pipe[F, Byte, Byte] = {
