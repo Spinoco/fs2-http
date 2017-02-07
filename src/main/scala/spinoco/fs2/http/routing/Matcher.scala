@@ -44,6 +44,10 @@ sealed trait Matcher[+F[_], +A] { self =>
   def >>[F0[_],Lub[_], B](fb: Matcher[F0, B])(implicit L: Lub1[F,F0,Lub]):  Matcher[Lub, B]  =
     flatMap(_ => fb)
 
+  /** defined as flatMap { a => fb map { _ => a} } **/
+  def <<[F0[_],Lub[_], B](fb: Matcher[F0, B])(implicit L: Lub1[F,F0,Lub]):  Matcher[Lub, A]  =
+    flatMap(a => fb map { _ => a})
+
   /** defined as advance.flatMap(f) **/
   def />>=[F0[_],Lub[_], B](f: A => Matcher[F0, B])(implicit L: Lub1[F,F0,Lub]):  Matcher[Lub, B]  =
     self.advance.flatMap(f)
