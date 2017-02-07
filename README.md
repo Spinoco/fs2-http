@@ -1,7 +1,9 @@
 # fs2-http
 
-Minimalistic client with scala fs2 library. 
+Minimalistic yet powerfull http client and server with scala fs2 library. 
 
+[![Build Status](https://travis-ci.org/Spinoco/fs2-http.svg?branch=master)](https://travis-ci.org/Spinoco/fs2-http)
+[![Gitter Chat](https://badges.gitter.im/functional-streams-for-scala/fs2.svg)](https://gitter.im/fs2-http/Lobby)
 
 ## Overview
 
@@ -25,6 +27,10 @@ functional library, such as scalaz or cats.
 ### SBT
 
 Add this to your sbt build file : 
+
+```
+libraryDependencies += "com.spinoco" %% "fs2-http" % "0.1.1-SNAPSHOT" 
+```
 
 
 ## Usage
@@ -101,7 +107,7 @@ Websocket uses `Frame\[A\]` to send and receive data. Frame is used to tag frame
 
 ### HTTP Server
 
-fs2 has support to build simple server. Following construct builds the server: 
+fs2-http has support to build simple yet fully functional HTTP server. Following construct builds very simple echo server: 
 
 ```
  def service(request: HttpRequestHeader, body: Stream[Task,Byte]): Stream[Task,HttpResponse[Task]] = {
