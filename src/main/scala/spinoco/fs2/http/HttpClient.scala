@@ -172,11 +172,10 @@ trait HttpClient[F[_]] {
        timeout match {
          case fin: FiniteDuration =>
            eval(F.delay(System.currentTimeMillis())).flatMap { start =>
-           HttpRequest.toStream(request, requestCodec).to(socket.writes(Some(fin))).last.flatMap { _ =>
+           HttpRequest.toStream(request, requestCodec).to(socket.writes(Some(fin))).last.onFinalize(socket.endOfOutput).flatMap { _ =>
            eval(async.signalOf[F, Boolean](true)).flatMap { timeoutSignal =>
            eval(F.delay(System.currentTimeMillis())).flatMap { sent =>
-             val remains = (fin - (sent - start).millis)
-
+             val remains = fin - (sent - start).millis
              readWithTimeout(socket, remains, timeoutSignal.get, chunkSize)
              .through (HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec))
              .flatMap { response =>
@@ -184,8 +183,8 @@ trait HttpClient[F[_]] {
              }
            }}}}
 
-         case infinite =>
-           HttpRequest.toStream(request, requestCodec).to(socket.writes(None)).last.flatMap { _ =>
+         case _ =>
+           HttpRequest.toStream(request, requestCodec).to(socket.writes(None)).last.onFinalize(socket.endOfOutput).flatMap { _ =>
              socket.reads(chunkSize, None) through HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec)
            }
        }

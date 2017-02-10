@@ -62,8 +62,8 @@ object HttpServer {
           .attempt.flatMap { attempt =>
             def send(request:Option[HttpRequestHeader]): Pipe[F, HttpResponse[F], Unit] = {
               _.flatMap { resp =>
-                HttpResponse.toStream(resp, responseCodec).through(socket.writes())
-                  .attempt.flatMap {
+                HttpResponse.toStream(resp, responseCodec).through(socket.writes()).onFinalize(socket.endOfOutput)
+                .attempt.flatMap {
                   case Left(err) => sendFailure(request, resp, err)
                   case _ => Stream.empty
                 }

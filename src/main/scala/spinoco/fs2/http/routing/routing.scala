@@ -126,9 +126,19 @@ package object routing {
   def body[F[_]]: BodyHelper[F] = new BodyHelper[F] {}
 
   trait BodyHelper[F[_]] {
-    /** extract body as raw bytes w/o checking its content type bytes **/
+    /**
+      * extract body as raw bytes w/o checking its content type bytes.
+      * If `Content-Length` header is provided, then up to that much bytes is consumed from the body.
+      * Otherwise this prouces a stream of bytes that is terminated after clients signal EOF
+      */
     def bytes:  Matcher[F, Stream[F, Byte]] =
-      Match[F, Stream[F, Byte]] { (_, body) => Success(body)  }
+      header[`Content-Length`].?.flatMap { maybeSized =>
+        Match[F, Stream[F, Byte]] { (_, body) =>
+          MatchResult.success(maybeSized.map(_.value).fold(body) { sz => body.take(sz) })
+        }
+      }
+
+
 
     /** extracts body as stream of `A` **/
     def stream[A](implicit D: StreamBodyDecoder[F, A]):  Matcher[F, Stream[F, A]] =
@@ -141,7 +151,7 @@ package object routing {
         }
       }
 
-    /** extracts last element of the body or responds BadRequest if body can't be extracted **/
+    /** extracts last element of the `body` or responds BadRequest if body can't be extracted **/
     def as[A](implicit D: BodyDecoder[A], F: Catchable[F]): Matcher[F, A] = {
       header[`Content-Type`].flatMap { ct =>
         bytes.flatMap { s => eval {

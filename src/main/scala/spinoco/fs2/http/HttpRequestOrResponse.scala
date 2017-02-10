@@ -231,7 +231,9 @@ object HttpRequest {
     * Converts the supplied request to binary stream of data to be sent over wire.
     * Note that this inspects the headers to eventually perform chunked encoding of the stream,
     * if that indication is present in headers,
-    * otherwise this just encodes as binary stream of data after header of the request.
+    *
+    * Otherwise this just encodes as binary stream of data after header of the request.
+    *
     *
     * @param request        request to convert to stream
     * @param headerCodec    Codec to convert the header to bytes
