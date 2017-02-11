@@ -61,5 +61,13 @@ object MatcherSpec extends Properties("Matcher"){
   }
 
 
+  property("matcher-hlist")  = secure {
+    val r: Route[Task] = "hello" :/: "body" :/: as[Int] :/: "foo" :/: as[Long] map { _ => RespondOk }
+
+    r matches(requestAt("/hello/body/33/foo/22")) isSuccess
+
+  }
+
+
 
 }

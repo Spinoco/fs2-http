@@ -134,7 +134,7 @@ object Matcher {
   implicit class RequestMatcherHListSyntax[F[_], L <: HList](val self: Matcher[F, L]) extends AnyVal {
     /** combines two matcher'r result to resulting hlist **/
     def ::[B](other: Matcher[F, B]): Matcher[F, B :: L] =
-      self.flatMap { l => other.map { b => b :: l } }
+      other.flatMap { b => self.map { l => b :: l } }
 
     /** combines this matcher with other matcher appending result of other matcher at the end **/
     def :+[B](other: Matcher[F, B])(implicit P : Prepend[L, B :: HNil]): Matcher[F, P.Out] =
@@ -142,11 +142,11 @@ object Matcher {
 
     /** prepends result of other matcher before the result of this matcher **/
     def :::[L2 <: HList, HL <: HList](other: Matcher[F, L2])(implicit P: Prepend.Aux[L2, L, HL]): Matcher[F, HL] =
-      self.flatMap { l => other.map { l2 => l2 ::: l } }
+      other.flatMap { l2 => self.map { l => l2 ::: l } }
 
     /** combines two matcher'r result to resulting hlist, and advances path between them  **/
     def :/:[B](other : Matcher[F, B]): Matcher[F, B :: L] =
-      self.advance.flatMap { l => other.map { b => b :: l } }
+      other.advance.flatMap { b => self.map { l => b :: l } }
 
     /** like `map` but instead (L:HList) => B, takes ordinary function **/
     def mapH[FF, B](f: FF)(implicit F2P: FnToProduct.Aux[FF, L => B]): Matcher[F, B] =
@@ -159,10 +159,10 @@ object Matcher {
   implicit class RequestMatcherSyntax[F[_], A](val self: Matcher[F, A]) extends AnyVal {
     /** applies this matcher and if it is is successful then applies `other` returning result in HList B :: A :: HNil */
     def :: [B](other : Matcher[F, B]): Matcher[F, B :: A :: HNil] =
-      self.flatMap { a => other.map { b => b :: a :: HNil } }
+      other.flatMap { b => self.map { a => b :: a :: HNil } }
 
     def :/:[B](other : Matcher[F, B]): Matcher[F, B :: A :: HNil] =
-      self.advance.flatMap { a => other.map { b => b :: a :: HNil } }
+      other.advance.flatMap { b => self.map { a => b :: a :: HNil } }
 
 
 

@@ -46,7 +46,7 @@ package object internal {
     */
   def httpHeaderAndBody[F[_]](maxHeaderSize: Int): Pipe[F, Byte, (ByteVector, Stream[F, Byte])] = {
     def go(self:Stream[F,Byte], buff: ByteVector): Stream[F, (ByteVector, Stream[F, Byte])] = {
-      self.uncons.flatMap {
+      self.scope.uncons.flatMap {
         case None => Stream.fail(new Throwable(s"Incomplete Header received (sz = ${buff.size}): ${buff.decodeUtf8}"))
         case Some((chunk, next)) =>
           val bv = chunk2ByteVector(chunk)
