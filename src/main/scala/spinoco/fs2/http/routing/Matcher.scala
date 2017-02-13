@@ -6,7 +6,7 @@ import shapeless.ops.function.FnToProduct
 import shapeless.ops.hlist.Prepend
 import shapeless.{::, HList, HNil}
 import spinoco.fs2.http.HttpResponse
-import spinoco.fs2.http.routing.MatchResult.Success
+import spinoco.fs2.http.routing.MatchResult.{Failed, Success}
 import spinoco.protocol.http.{HttpRequestHeader, HttpStatusCode, Uri}
 
 
@@ -99,16 +99,19 @@ object Matcher {
   case class Eval[F[_], A](f: F[A]) extends Matcher[F, A]
 
 
-
+  /** matcher that always succeeds **/
   def success[A](a: A): Matcher[Nothing, A] =
     Match[Nothing,A] { (_,_) => MatchResult.Success[A](a) }
 
+  /** matcher that always responds (fails) with supplied response **/
   def respond[F[_]](response: HttpResponse[F]): Matcher[F, Nothing] =
     Match[F, Nothing] { (_, _) => MatchResult.Failed[F](response) }
 
+  /** matcher that always responds with supplied status code **/
   def respondWith(code: HttpStatusCode): Matcher[Nothing, Nothing] =
     respond(HttpResponse(code))
 
+  /** Matcher that always results in result supplied**/
   def ofResult[F[_], A](result:MatchResult[F,A]): Matcher[F, A] =
     Match[F, A] { (_, _) => result }
 
@@ -120,10 +123,17 @@ object Matcher {
       current match {
         case m: Match[F,B] => F.map(F.pure(m.f(header.copy(path = path), body))) { _ -> path }
         case m: Eval[F, B] => F.map(m.f)(b => Success(b) -> path)
-        case m: Bind[F, _, B] => F.flatMap(F.suspend(go(m.m, path))){ case (r, path0) => go(m.f(r), path0) }
+        case m: Bind[F, _, B] => F.flatMap(F.suspend(go(m.m, path))){ case (r, path0) =>
+          if (r.isSuccess)  go(m.f(r), path0)
+          else go(m.f(r), path)
+        }
         case m: Advance[F, B] => F.map(F.suspend(go(m.m, path))){ case (r, path0) =>
-          if (r.isSuccess) r -> path0.copy(segments = if (path0.segments.nonEmpty) path0.segments.tail else Nil)
-          else r -> path0
+          if (r.isSuccess) {
+            if (path0.segments.nonEmpty) r -> path0.copy(segments = path0.segments.tail)
+            else if (path0.trailingSlash) r -> path0.copy(trailingSlash = false)
+            else r -> path0 // no op
+          }
+          else r -> path
         }
       }
     }

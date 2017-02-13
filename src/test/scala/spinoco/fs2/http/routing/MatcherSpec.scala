@@ -69,5 +69,52 @@ object MatcherSpec extends Properties("Matcher"){
   }
 
 
+  property("matcher-advance-recover") = secure {
+    val r: Route[Task] = choice(
+      "hello" / choice (  "user" / "one" ) map { _ => RespondOk }
+      , "hello" / "people" map { _ => RespondOk }
+    )
+
+    (r matches(requestAt("/hello/people")) isSuccess)
+  }
+
+
+  property("matches-uri-alternative") = secure {
+    val r: Route[Task] = "hello" / choice(
+      "world"
+      , "nation" / ( "greeks" or "romans" )
+      , "city" / "of" / "prague"
+    ) map { _ => RespondOk }
+
+    (r matches requestAt("/hello/world") isSuccess) &&
+    (r matches requestAt("/hello/nation/greeks") isSuccess) &&
+    (r matches requestAt("/hello/nation/romans") isSuccess) &&
+    (r matches requestAt("/hello/city/of/prague") isSuccess) &&
+    (r matches requestAt("/bye") isFailure) &&
+    (r matches requestAt("/hello/town") isFailure) &&
+    (r matches requestAt("/hello/nation/egyptians") isFailure) &&
+    (r matches requestAt("/hello/city/of/berlin") isFailure)
+  }
+
+
+  property("matches-deep-uri") = secure {
+    val r: Route[Task] = (1 until 10000).foldLeft[Matcher[Task, String]]("deep" / "0") {
+      case (m, next) => m / next.toString
+    } map { _ => RespondOk }
+
+    val path = (1 until 10000).mkString("/deep/0/", "/", "")
+
+    r matches requestAt(path) isSuccess
+  }
+
+
+  property("matcher-hlist")  = secure {
+    val r: Route[Task] = "hello" :/: "body" :/: as[Int] :/: "foo" :/: as[Long] map { _ => RespondOk }
+
+    r matches(requestAt("/hello/body/33/foo/22")) isSuccess
+
+  }
+
+
 
 }
