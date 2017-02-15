@@ -172,7 +172,7 @@ Meaning of individual routes is as follows:
 
 ### Comparing to http://http4s.org/
 
-Http4s.org is a very nice library for http, starting out with scalaz-stream and migrating currently to fs2. The main difference with fs2-http is that unlike http4s.org we have minimal amount of dependincies and are using fs2 for network stack as well. Unlike http4s.org you don't need special build for scalaz and cats, as fs2-http does not dependes on any of them. 
+Http4s.org is a very nice library for http, originaly started with scalaz-stream and migrating currently to fs2. The main difference between http4s.org and fs2-http is that unlike http4s.org, fs2-http has minimal amount of dependincies and is using fs2 for networking stack (tcp, ssl) as well. Unlike http4s.org you don't need special build for scalaz and cats, as fs2-http does not dependes on any of them. 
 
 
 
