@@ -7,7 +7,7 @@ Minimalistic yet powerfull http client and server with scala fs2 library.
 
 ## Overview
 
-fs2-http is simple client ans server library that allows you to build http clients and server using scala fs2. 
+fs2-http is simple client and server library that allows you to build http clients and server using scala fs2. 
 Aim of the fs2-http is to provide, simple and reusable components that allows quickly to work with various 
 http protocols. 
 
