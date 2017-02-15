@@ -18,6 +18,7 @@ fs2-http was build by compiling internal projects Spinoco uses for building its 
 Currently the project has only three dependencies: fs2, scodec and shapeless. As such you are free to use this with any other 
 functional library, such as scalaz or cats. 
 
+
 ### Features
 
 - HTTP 1.1 Client (request/reply, websocket, server-side-events) with SSL support
@@ -29,8 +30,14 @@ functional library, such as scalaz or cats.
 Add this to your sbt build file : 
 
 ```
-libraryDependencies += "com.spinoco" %% "fs2-http" % "0.1.1-SNAPSHOT" 
+libraryDependencies += "com.spinoco" %% "fs2-http" % "0.1.3" 
 ```
+
+### Dependencies
+
+version  |    scala  |   fs2  |  scodec | shapeless      
+---------|-----------|--------|---------|-----------
+1.1.3    | 2.11, 2.12| 0.9.2  | 1.10.3  | 2.3.2 
 
 
 ## Usage
@@ -162,5 +169,11 @@ Meaning of individual routes is as follows:
 - example4 : will match path "/example4" and will match if header `Content-Type` is present supplying that header to map. 
 - example5 : will match path "/example5?count=1&query=sql_query" supplying 1 :: "sql:query" :: HNil to map
 - example6 : will match path "/example6" and then evaluating `someEffect` where the result of someEffect will be passed to map  
+
+### Comparing to http://http4s.org/
+
+Http4s.org is a very nice library for http, starting out with scalaz-stream and migrating currently to fs2. The main difference with fs2-http is that unlike http4s.org we have minimal amount of dependincies and are using fs2 for network stack as well. Unlike http4s.org you don't need special build for scalaz and cats, as fs2-http does not dependes on any of them. 
+
+
 
 
