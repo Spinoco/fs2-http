@@ -48,8 +48,11 @@ Throughout this usage guide, the following imports are required in order for you
 import fs2._
 import fs2.util.syntax._
 import spinoco.fs2.http
-import http.Resources._
+import http._
+import http.websocket._
 import spinoco.protocol.http.header._
+import spinoco.protocol.http._
+import spinoco.protocol.http.header.value._
 ```
 
 
@@ -60,13 +63,13 @@ A simple client that requests https page body data with the GET method from `htt
 
 ``` 
 http.client[Task]().flatMap { client =>
-  val request = HttpRequest.get(Uri.https("github.com", "/Spinoco/fs2-http"))    
+  val request = HttpRequest.get[Task](Uri.https("github.com", "/Spinoco/fs2-http"))
   client.request(request).flatMap { resp =>
     Stream.eval(resp.bodyAsString)
   }.runLog.map {
     println
   }
-} 
+}.unsafeRun()
 ```
 
 The above code snippet only "builds" the http client, resulting in `fs2.Task` that will be evaluated once run (using `unsafeRunAsync()`). 
@@ -78,10 +81,12 @@ Requests to the server are modeled with [HttpRequest\[F\]](https://github.com/Sp
 There is also a simple way to sent (stream) arbitrary data to server. It is easily achieved by modifying the request accordingly:
 
 ```
-val stringStream: Stram[Task, String] = ???
+val stringStream: Stream[Task, String] = ???
+implicit val encoder = StreamBodyEncoder.utf8StringEncoder[Task]
 
-HttpRequest.post(Uri.https("github.com", "/Spinoco/fs2-http"))
-.withStreamBody(stringStream) 
+HttpRequest.get(Uri.https("github.com", "/Spinoco/fs2-http"))
+.withMethod(HttpMethod.POST)
+.withStreamBody(stringStream)
 ```
 
 In the example above the request is build as such, to ensure that when run by the client it will consume `stringStream` and send it with PUT request as utf8 encoded body to server. 
@@ -101,7 +106,7 @@ def wsPipe: Pipe[Task, Frame[String], Frame[String]] = { inbound =>
 http.client[Task]().flatMap { client =>
   val request = WebSocketRequest.ws("echo.websocket.org", "/", "encoding" -> "text")  
   client.websocket(request, wsPipe).run  
-}
+}.unsafeRun()
 ```
  
 The above code will create a pipe that receives websocket frames and expects the server to echo them back. As you see, 
@@ -143,12 +148,13 @@ Thanks to the parser's ability to compose, you can build quite complex routing c
 
 ```
 import spinoco.fs2.http.routing._
+import shapeless.{HNil, ::}
 
 route[Task] ( choice(
   "example1" / "path" map { case _ => ??? }
-  , "exmaple2" / decodeAs[Int] :/: decodeAs[String] map { case int :: s :: HNil => ??? }
-  , "exmaple3" / body.as[Foo] :: choice(POST, PUT) map { case foo :: postOrPut :: HNil => ??? }    
-  , "exmaple4" / header[`Content-Type`] map { case contentType  => ??? }    
+  , "exmaple2" / as[Int] :/: as[String] map { case int :: s :: HNil => ??? }
+  , "exmaple3" / body.as[Foo] :: choice(Post, Put) map { case foo :: postOrPut :: HNil => ??? }
+  , "exmaple4" / header[`Content-Type`] map { case contentType  => ??? }
   , "example5" / param[Int]("count") :: param[String]("query") map { case count :: query :: HNil => ??? }
   , "example6" / eval(someEffect) map { case result => ??? }
 ))
