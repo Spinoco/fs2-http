@@ -68,8 +68,8 @@ http.client[Task]().flatMap { client =>
     Stream.eval(resp.bodyAsString)
   }.runLog.map {
     println
-  }.unsafeRun()
-} 
+  }
+}.unsafeRun()
 ```
 
 The above code snippet only "builds" the http client, resulting in `fs2.Task` that will be evaluated once run (using `unsafeRunAsync()`). 
