@@ -152,9 +152,9 @@ import shapeless.{HNil, ::}
 
 route[Task] ( choice(
   "example1" / "path" map { case _ => ??? }
-  , "exmaple2" / as[Int] :/: as[String] map { case int :: s :: HNil => ??? }
-  , "exmaple3" / body.as[Foo] :: choice(Post, Put) map { case foo :: postOrPut :: HNil => ??? }
-  , "exmaple4" / header[`Content-Type`] map { case contentType  => ??? }
+  , "example2" / as[Int] :/: as[String] map { case int :: s :: HNil => ??? }
+  , "example3" / body.as[Foo] :: choice(Post, Put) map { case foo :: postOrPut :: HNil => ??? }
+  , "example4" / header[`Content-Type`] map { case contentType  => ??? }
   , "example5" / param[Int]("count") :: param[String]("query") map { case count :: query :: HNil => ??? }
   , "example6" / eval(someEffect) map { case result => ??? }
 ))
