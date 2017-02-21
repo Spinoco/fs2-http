@@ -45,7 +45,7 @@ object WebSocketSpec extends Properties("WebSocket") {
       )
 
     val clientStream =
-      time.sleep[Task](3.seconds) ++
+      time.sleep_[Task](3.seconds) ++
       WebSocket.client(
         WebSocketRequest.ws("127.0.0.1", 9090, "/")
         , clientData

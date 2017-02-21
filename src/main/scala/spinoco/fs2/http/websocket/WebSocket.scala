@@ -195,7 +195,6 @@ object WebSocket {
       val fingerprint = computeFingerPrint(key)
       val headers = header.headers.collect {
         case h: `Sec-WebSocket-Protocol` => h
-        case h: `Sec-WebSocket-Extensions` => h
       }
       HttpResponseHeader(
         status = HttpStatusCode.SwitchingProtocols

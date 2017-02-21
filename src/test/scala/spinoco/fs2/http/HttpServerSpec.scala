@@ -51,7 +51,7 @@ object HttpServerSpec extends Properties("HttpServer"){
 
     concurrent.join(Int.MaxValue)(Stream(
       http.server[Task](new InetSocketAddress("127.0.0.1", 9090))(echoService).drain
-    ) ++ time.sleep[Task](1.second) ++ clients)
+    ) ++ time.sleep_[Task](1.second) ++ clients)
     .take(count)
     .filter { case (idx, success) => success }
     .runLog.unsafeTimed(30.seconds).unsafeRun().size ?= count
@@ -80,10 +80,10 @@ object HttpServerSpec extends Properties("HttpServer"){
         }}
     }
 
-    ( time.sleep[Task](3.second) ++
+    ( time.sleep_[Task](3.second) ++
     concurrent.join(Int.MaxValue)(Stream(
       http.server[Task](new InetSocketAddress("127.0.0.1", 9090))(echoService).drain
-    ) ++ time.sleep[Task](1.second) ++ clients))
+    ) ++ time.sleep_[Task](1.second) ++ clients))
     .take(count)
     .filter { case (idx, success) => success }
     .runLog.unsafeTimed(30.seconds).unsafeRun().size ?= count
@@ -107,13 +107,13 @@ object HttpServerSpec extends Properties("HttpServer"){
       }}}
     }
 
-    (time.sleep[Task](3.second) ++
+    (time.sleep_[Task](3.second) ++
     concurrent.join(Int.MaxValue)(Stream(
       http.server[Task](
         new InetSocketAddress("127.0.0.1", 9090)
       , requestFailure = _ => Stream(HttpResponse(HttpStatusCode.BadRequest))
       )(failRouteService).drain
-    ) ++ time.sleep[Task](1.second) ++ clients))
+    ) ++ time.sleep_[Task](1.second) ++ clients))
       .take(count)
       .filter { case (idx, success) => success }
       .runLog.unsafeTimed(30.seconds).unsafeRun().size ?= count
@@ -137,13 +137,13 @@ object HttpServerSpec extends Properties("HttpServer"){
       }
     }
 
-    (time.sleep[Task](3.second) ++
+    (time.sleep_[Task](3.second) ++
     concurrent.join(Int.MaxValue)(Stream(
       http.server[Task](
         new InetSocketAddress("127.0.0.1", 9090)
         , sendFailure = (_, _, _) => Stream.empty
       )(failingResponse).drain
-    ) ++ time.sleep[Task](1.second) ++ clients))
+    ) ++ time.sleep_[Task](1.second) ++ clients))
       .take(count)
       .filter { case (idx, success) => success }
       .runLog.unsafeTimed(30.seconds).unsafeRun().size ?= count
