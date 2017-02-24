@@ -31,10 +31,8 @@ object WebSocket {
     *
     * Implementation is according to RFC-6455 (https://tools.ietf.org/html/rfc6455).
     *
-    * @param f                A function that creates websocket pipe. `I` is received from the client and `O` is sent to client.
+    * @param pipe             A websocket pipe. `I` is received from the client and `O` is sent to client.
     *                         Decoder (for I) and Encoder (for O) must be supplied.
-    *                         Note that this function may evaluate on the left, to indicate response to the client before
-    *                         the handshake takes place (i.e. Unauthorized).
     * @param pingInterval     An interval for the Ping / Pong protocol.
     * @param handshakeTimeout An timeout to await for handshake to be successfull. If the handshake is not completed
     *                         within supplied period, connection is terminated.
@@ -44,7 +42,7 @@ object WebSocket {
     * @return
     */
   def server[F[_], I, O](
-    f: HttpRequestHeader => Either[HttpResponse[F], Pipe[F, Frame[I], Frame[O]]]
+    pipe: Pipe[F, Frame[I], Frame[O]]
     , pingInterval: Duration = 30.seconds
     , handshakeTimeout: FiniteDuration = 10.seconds
     , maxFrameSize: Int = 1024*1024
@@ -56,11 +54,10 @@ object WebSocket {
     , S: Scheduler
   ): Stream[F,HttpResponse[F]] = {
     Stream.emit(
-      f(header).right.flatMap { pipe =>
       impl.verifyHeaderRequest[F](header).right.map { key =>
         val respHeader = impl.computeHandshakeResponse(header, key)
         HttpResponse(respHeader, input through impl.webSocketOf(pipe, pingInterval, maxFrameSize, client2Server = false))
-      }}.merge
+      }.merge
     )
   }
 
@@ -245,6 +242,39 @@ object WebSocket {
       }
     }}
 
+    /**
+      * Cuts necessary data for decoding the frame, done by partially decoding
+      * the frame
+      * Empty if the data couldn't be decoded yet
+      * 
+      * @param in Current buffer that may contain full frame
+      */
+    def cutFrame(in:ByteVector): Option[ByteVector] = {
+      val bits = in.bits
+      if (bits.size < 16) None // smallest frame is 16 bits
+      else {
+        val maskSize = if (bits(8)) 4 else 0
+        val sz = bits.drop(9).take(7).toInt(signed = false)
+        val maybeEnough =
+          if (sz < 126) {
+            // no extended payload size, sz bytes expected
+            Some(sz.toLong + 2)
+          } else if (sz == 126) {
+            // next 16 bits is payload size
+            if (bits.size < 32) None
+            else Some(bits.drop(16).take(16).toInt(signed = false).toLong + 4)
+          } else {
+            // next 64 bits is payload size
+            if (bits.size < 80) None
+            else Some(bits.drop(16).take(64).toLong(signed = false) + 10)
+          }
+        maybeEnough.flatMap { sz =>
+          val fullSize = sz + maskSize
+          if (in.size < fullSize) None
+          else Some(in.take(fullSize))
+        }
+      }
+    }
 
     /**
       * Decodes websocket frame.
@@ -255,35 +285,6 @@ object WebSocket {
       * @param maxFrameSize  Maximum size of the frame, including its header.
       */
     def decodeWebSocketFrame[F[_]](maxFrameSize: Int , flag: Boolean): Pipe[F, Byte, WebSocketFrame] = {
-      // cuts necessary data for decoding the frame.
-      // empty if the data couldn't be decoded yet
-      def cutFrame(in:ByteVector): Option[ByteVector] = {
-        val bits = in.bits
-        if (bits.size < 16) None // smallest frame is 16 bits
-        else {
-          val maskSize = if (bits(8)) 4 else 0
-          val sz = bits.drop(9).take(7).toInt()
-          val maybeEnough =
-            if (sz < 126) {
-              // no extended payload size, sz bytes expected
-              Some(sz.toLong + 2)
-            } else if (sz == 126) {
-              // next 16 bits is payload size
-              if (bits.size < 32) None
-              else Some(bits.drop(16).take(16).toInt().toLong + 4)
-            } else {
-              // next 64 bits is payload size
-              if (bits.size < 80) None
-              else Some(bits.drop(16).take(64).toLong() + 10)
-            }
-          maybeEnough.flatMap { sz =>
-            val fullSize = sz + maskSize
-            if (in.size < fullSize) None
-            else Some(in.take(fullSize))
-          }
-        }
-      }
-
       def go(buff: ByteVector): Handle[F, Byte] => Pull[F, WebSocketFrame, Unit] = { h0 =>
         if (buff.size > maxFrameSize) Pull.fail(new Throwable(s"Size of websocket frame exceeded max size: $maxFrameSize, current: ${buff.size}, $buff"))
         else {

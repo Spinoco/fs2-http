@@ -38,7 +38,7 @@ object WebSocketSpec extends Properties("WebSocket") {
     val serverStream =
       http.server[Task](new InetSocketAddress("127.0.0.1", 9090))(
         server (
-          { header => Right(serverEcho) }
+          pipe = serverEcho
           , pingInterval = 500.millis
           , handshakeTimeout = 10.seconds
         )
@@ -59,5 +59,34 @@ object WebSocketSpec extends Properties("WebSocket") {
 
   }
 
+  property("websocket-cut-frame-125-bytes") = secure{
+    val data = ByteVector.fromHex("827d" + "aa"*170).get
+    val cut = WebSocket.impl.cutFrame(data)
+    cut ?= Some(data.take(127))
+  }
+
+  property("websocket-cut-frame-256-bytes") = secure{
+    val data = ByteVector.fromHex("827e0100" + "aa"*300).get
+    val cut = WebSocket.impl.cutFrame(data)
+    cut ?= Some(data.take(260))
+  }
+
+  property("websocket-cut-frame-65536-bytes") = secure{
+    val data = ByteVector.fromHex("827f0000000000010000" + "aa"*70000).get
+    val cut = WebSocket.impl.cutFrame(data)
+    cut ?= Some(data.take(65546))
+  }
+
+  property("websocket-cut-frame-less-16") = secure{
+    val data = ByteVector.fromHex("827").get
+    val cut = WebSocket.impl.cutFrame(data)
+    cut ?= None
+  }
+
+  property("websocket-cut-frame-not-enough") = secure{
+    val data = ByteVector.fromHex("827e0100" + "aa"*100).get
+    val cut = WebSocket.impl.cutFrame(data)
+    cut ?= None
+  }
 
 }
