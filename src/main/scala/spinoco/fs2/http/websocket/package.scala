@@ -15,7 +15,7 @@ package object websocket {
     *
     * Implementation is according to RFC-6455 (https://tools.ietf.org/html/rfc6455).
     *
-    * @param f                A function that creates websocket pipe. `I` is received from the client and `O` is sent to client.
+    * @param pipe             A websocket pipe. `I` is received from the client and `O` is sent to client.
     *                         Decoder (for I) and Encoder (for O) must be supplied.
     *                         Note that this function may evaluate on the left, to indicate response to the client before
     *                         the handshake took place (i.e. Unauthorized).
@@ -26,7 +26,7 @@ package object websocket {
     * @return
     */
   def server[F[_], I, O](
-    f: HttpRequestHeader => Either[HttpResponse[F], Pipe[F, Frame[I], Frame[O]]]
+    pipe: Pipe[F, Frame[I], Frame[O]]
     , pingInterval: Duration = 30.seconds
     , handshakeTimeout: FiniteDuration = 10.seconds
   )(header: HttpRequestHeader, input: Stream[F,Byte])(
@@ -36,12 +36,6 @@ package object websocket {
     , F: Async[F]
     , S: Scheduler
   ): Stream[F, HttpResponse[F]] =
-    WebSocket.server(f, pingInterval, handshakeTimeout)(header, input)
-
-
-
-
-
-
+    WebSocket.server(pipe, pingInterval, handshakeTimeout)(header, input)
 
 }

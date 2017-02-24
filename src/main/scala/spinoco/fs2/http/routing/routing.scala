@@ -1,8 +1,8 @@
 package spinoco.fs2.http
 
 import fs2._
-import fs2.util.{Catchable, Lub1, Suspendable}
-import scodec.Attempt
+import fs2.util.{Async, Catchable, Lub1, Suspendable}
+import scodec.{Attempt, Decoder, Encoder}
 import scodec.bits.Bases.Base64Alphabet
 import scodec.bits.{Bases, ByteVector}
 import shapeless.Typeable
@@ -12,6 +12,9 @@ import spinoco.fs2.http.routing.Matcher.{Eval, Match}
 import spinoco.protocol.http.header._
 import spinoco.protocol.http.{HttpMethod, HttpRequestHeader, HttpStatusCode, Uri}
 import spinoco.fs2.http.util.chunk2ByteVector
+import spinoco.fs2.http.websocket.{Frame, WebSocket}
+
+import scala.concurrent.duration._
 
 
 
@@ -114,6 +117,33 @@ package object routing {
         case None => NotFoundResponse
         case Some(a) => Success(a)
       }
+    }
+
+  /**
+    * Creates a Matcher that when supplied a pipe will create the websocket connection.
+    * `I` is received from the client and `O` is sent to client.
+    * Decoder (for I) and Encoder (for O) must be supplied.
+    *
+    * @param pingInterval     An interval for the Ping / Pong protocol.
+    * @param handshakeTimeout An timeout to await for handshake to be successfull. If the handshake is not completed
+    *                         within supplied period, connection is terminated.
+    * @param maxFrameSize     Maximum size of single websocket frame. If the binary size of single frame is larger than
+    *                         supplied value, websocket will fail.
+    */
+  def websocket[F[_], I, O](
+    pingInterval: Duration = 30.seconds
+    , handshakeTimeout: FiniteDuration = 10.seconds
+    , maxFrameSize: Int = 1024*1024
+  )(
+    implicit R: Decoder[I]
+    , W: Encoder[O]
+    , F: Async[F]
+    , S: Scheduler
+  ): Match[Nothing, (Pipe[F, Frame[I], Frame[O]]) => Stream[F, HttpResponse[F]]] =
+    Match[Nothing, (Pipe[F, Frame[I], Frame[O]]) => Stream[F, HttpResponse[F]]] { (request, body) =>
+      Success(
+        WebSocket.server[F, I, O](_, pingInterval, handshakeTimeout, maxFrameSize)(request, body)
+      )
     }
 
   /**
