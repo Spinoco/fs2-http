@@ -45,7 +45,7 @@ object WebSocketRequest {
   }
 
   def wss(host: String, path: String, params: (String, String)*): WebSocketRequest =
-    ws(host, 443, path, params:_*)
+    wss(host, 443, path, params:_*)
 
 
 
