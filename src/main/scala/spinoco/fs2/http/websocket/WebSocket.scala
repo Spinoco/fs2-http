@@ -440,7 +440,7 @@ object WebSocket {
 
     /** random generator, ascii compatible **/
     def randomBytes(size: Int):ByteVector = {
-      ByteVector.view(Random.alphanumeric.take(size).toString().getBytes)
+      ByteVector.view(Random.alphanumeric.take(size).mkString.getBytes)
     }
 
     /**
