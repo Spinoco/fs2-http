@@ -30,13 +30,14 @@ functional library, such as scalaz or cats.
 Add this to your sbt build file : 
 
 ```
-libraryDependencies += "com.spinoco" %% "fs2-http" % "0.1.3" 
+libraryDependencies += "com.spinoco" %% "fs2-http" % "0.1.6" 
 ```
 
 ### Dependencies
 
 version  |    scala  |   fs2  |  scodec | shapeless      
 ---------|-----------|--------|---------|-----------
+0.1.6    | 2.11, 2.12| 0.9.4  | 1.10.3  | 2.3.2
 0.1.4    | 2.11, 2.12| 0.9.4  | 1.10.3  | 2.3.2
 0.1.3    | 2.11, 2.12| 0.9.2  | 1.10.3  | 2.3.2 
 
