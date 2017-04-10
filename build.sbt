@@ -10,7 +10,7 @@ lazy val contributors = Seq(
 lazy val commonSettings = Seq(
    organization := "com.spinoco",
    scalaVersion := "2.11.8",
-   crossScalaVersions := Seq("2.11.8", "2.12.0"),
+   crossScalaVersions := Seq("2.11.8", "2.12.1"),
    scalacOptions ++= Seq(
     "-feature",
     "-deprecation",
@@ -26,11 +26,11 @@ lazy val commonSettings = Seq(
    scalacOptions in (Compile, console) ~= {_.filterNot("-Ywarn-unused-import" == _)},
    scalacOptions in (Test, console) <<= (scalacOptions in (Compile, console)),
    libraryDependencies ++= Seq(
-     "org.scodec" %% "scodec-bits" % "1.1.2"
+     "org.scodec" %% "scodec-bits" % "1.1.4"
      , "org.scodec" %% "scodec-core" % "1.10.3"
      , "org.scalacheck" %% "scalacheck" % "1.13.4" % "test"
-     , "com.spinoco" %% "protocol-http" % "0.1.6"
-     , "com.spinoco" %% "protocol-websocket" % "0.1.6"
+     , "com.spinoco" %% "protocol-http" % "0.1.8"
+     , "com.spinoco" %% "protocol-websocket" % "0.1.8"
      , "co.fs2" %% "fs2-core" % "0.9.5"
      , "co.fs2" %% "fs2-io" % "0.9.5"
    ),
