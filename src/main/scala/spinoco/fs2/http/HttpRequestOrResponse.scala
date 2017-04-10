@@ -309,10 +309,13 @@ object HttpResponse {
       responseCodec.decodeValue(header.bits) match {
         case Failure(err) => Stream.fail(new Throwable(s"Failed to decode http response :$err"))
         case Successful(response) =>
-          val body =
+          val unboundedBody =
             if (bodyIsChunked(response.headers)) bodyRaw through ChunkedEncoding.decode(1024)
             else bodyRaw
-
+          val contentLengthOpt = response.headers collectFirst {
+            case `Content-Length`(value) => value
+          }
+          val body = contentLengthOpt.fold(unboundedBody)(unboundedBody.take)
           Stream.emit(HttpResponse(response, body))
       }
     }
