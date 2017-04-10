@@ -31,8 +31,8 @@ lazy val commonSettings = Seq(
      , "org.scalacheck" %% "scalacheck" % "1.13.4" % "test"
      , "com.spinoco" %% "protocol-http" % "0.1.6"
      , "com.spinoco" %% "protocol-websocket" % "0.1.6"
-     , "co.fs2" %% "fs2-core" % "0.9.4"
-     , "co.fs2" %% "fs2-io" % "0.9.4"
+     , "co.fs2" %% "fs2-core" % "0.9.5"
+     , "co.fs2" %% "fs2-io" % "0.9.5"
    ),
    scmInfo := Some(ScmInfo(url("https://github.com/Spinoco/fs2-http"), "git@github.com:Spinoco/fs2-http.git")),
    homepage := None,
@@ -99,6 +99,7 @@ lazy val publishingSettings = Seq(
    val stripTestScope = stripIf { n => n.label == "dependency" && (n \ "scope").text == "test" }
    new RuleTransformer(stripTestScope).transform(node)(0)
   }
+  , resolvers += Resolver.mavenLocal
 )
 
 lazy val releaseSettings = Seq(
