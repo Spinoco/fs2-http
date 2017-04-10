@@ -115,13 +115,21 @@ The above code will create a pipe that receives websocket frames and expects the
 there is no direct access to response or body, instead websockets are always supplied with fs2 `Pipe` to send and receive data. 
 This is in fact quite a powerful construct that allows you to asynchronously send and receive data to/from server over http/https with full back-pressure support. 
  
-Websockets use `Frame\[A\]` to send and receive data. Frame is used to tag a given frame as binary or text. To encode/decode `A` the `scodec.Encoder` and `scodec.Decoder` is used. 
+Websockets use `Frame[A]` to send and receive data. Frame is used to tag a given frame as binary or text. To encode/decode `A` the `scodec.Encoder` and `scodec.Decoder` is used. 
 
 ### HTTP Server
 
 fs2-http supports building simple yet fully functional HTTP servers. The following construct builds a very simple echo server: 
 
 ```
+ import java.net.InetSocketAddress
+ import java.util.concurrent.Executors
+ import java.nio.channels.AsynchronousChannelGroup
+
+ val ES = Executors.newCachedThreadPool(Strategy.daemonThreadFactory("ACG"))
+ implicit val ACG = AsynchronousChannelGroup.withThreadPool(ES) // http.server requires a group
+ implicit val S = Strategy.fromExecutor(ES) // Async (Task) requires a strategy
+
  def service(request: HttpRequestHeader, body: Stream[Task,Byte]): Stream[Task,HttpResponse[Task]] = {
     if (request.path != Uri.Path / "echo") Stream.emit(HttpResponse(HttpStatusCode.Ok).withUtf8Body("Hello World"))
     else {
