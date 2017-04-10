@@ -37,8 +37,8 @@ libraryDependencies += "com.spinoco" %% "fs2-http" % "0.1.6"
 
 version  |    scala  |   fs2  |  scodec | shapeless      
 ---------|-----------|--------|---------|-----------
-0.1.6    | 2.11, 2.12| 0.9.4  | 1.10.3  | 2.3.2
-0.1.4    | 2.11, 2.12| 0.9.4  | 1.10.3  | 2.3.2
+0.1.7    | 2.11, 2.12| 0.9.5  | 1.10.3  | 2.3.2
+0.1.6    | 2.11, 2.12| 0.9.4  | 1.10.3  | 2.3.2 
 0.1.3    | 2.11, 2.12| 0.9.2  | 1.10.3  | 2.3.2 
 
 
@@ -55,6 +55,9 @@ import http.websocket._
 import spinoco.protocol.http.header._
 import spinoco.protocol.http._
 import spinoco.protocol.http.header.value._
+
+// import resources (Executor, Strategy, Asynchronous Channel Group, ...) 
+import spinoco.fs2.http.Resources._
 ```
 
 
