@@ -285,18 +285,30 @@ object WebSocket {
       * @param maxFrameSize  Maximum size of the frame, including its header.
       */
     def decodeWebSocketFrame[F[_]](maxFrameSize: Int , flag: Boolean): Pipe[F, Byte, WebSocketFrame] = {
+      // Returns list of raw frames and tail of
+      // the buffer. Tail of the buffer cant be empty
+      // (or non-empty if last one frame isn't finalized).
+      def cutFrames(data: ByteVector, acc: Vector[ByteVector] = Vector.empty): (Vector[ByteVector], ByteVector) = {
+        cutFrame(data) match {
+          case Some(frameData) => cutFrames(data.drop(frameData.size), acc :+ frameData)
+          case None => (acc, data)
+        }
+      }
       def go(buff: ByteVector): Handle[F, Byte] => Pull[F, WebSocketFrame, Unit] = { h0 =>
         if (buff.size > maxFrameSize) Pull.fail(new Throwable(s"Size of websocket frame exceeded max size: $maxFrameSize, current: ${buff.size}, $buff"))
         else {
           h0.receive { case (chunk, h) =>
             val data = buff ++ chunk2ByteVector(chunk)
-            cutFrame(data) match {
-              case None => go(data)(h)
-              case Some(frameData) =>
-                WebSocketFrameCodec.codec.decodeValue(frameData.bits) match {
-                  case Failure(err) => Pull.fail(new Throwable(s"Failed to decode websocket frame: $err, $frameData"))
-                  case Successful(wsFrame) => Pull.output1(wsFrame) >> go(data.drop(frameData.size))(h)
+            cutFrames(data) match {
+              case (rawFrames, _) if rawFrames.isEmpty => go(data)(h)
+              case (rawFrames, dataTail) =>
+                val pulls = rawFrames.map { data =>
+                  WebSocketFrameCodec.codec.decodeValue(data.bits) match {
+                    case Failure(err) => Pull.fail(new Throwable(s"Failed to decode websocket frame: $err, $data"))
+                    case Successful(wsFrame) => Pull.output1(wsFrame)
+                  }
                 }
+                pulls.reduce(_ >> _) >> go(dataTail)(h)
             }
           }
         }
@@ -440,7 +452,7 @@ object WebSocket {
 
     /** random generator, ascii compatible **/
     def randomBytes(size: Int):ByteVector = {
-      ByteVector.view(Random.alphanumeric.take(size).toString().getBytes)
+      ByteVector.view(Random.alphanumeric.take(size).mkString.getBytes)
     }
 
     /**

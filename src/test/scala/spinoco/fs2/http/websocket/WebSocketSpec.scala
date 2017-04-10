@@ -3,7 +3,7 @@ package spinoco.fs2.http.websocket
 import java.net.InetSocketAddress
 
 import fs2._
-import org.scalacheck.Properties
+import org.scalacheck.{Gen, Prop, Properties}
 import org.scalacheck.Prop._
 import scodec.Codec
 import scodec.bits.ByteVector
@@ -14,6 +14,13 @@ import scala.concurrent.duration._
 
 object WebSocketSpec extends Properties("WebSocket") {
   import spinoco.fs2.http.Resources._
+
+  property("random-bytes-size") = {
+    val interval = Gen.choose(1,50)
+    Prop.forAll(interval) { size: Int =>
+      WebSocket.impl.randomBytes(size).length == size
+    }
+  }
 
   property("computes-fingerprint") = secure {
     val key = ByteVector.fromBase64("L54CF9+DxAZSOHDW3AoG1A==").get
