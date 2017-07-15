@@ -1,10 +1,10 @@
 package spinoco.fs2.http.body
 
+import cats.MonadError
 import fs2._
-import fs2.util.Catchable
 import scodec.Attempt.{Failure, Successful}
 import scodec.bits.ByteVector
-import spinoco.fs2.interop.scodec.ByteVectorChunk
+import fs2.interop.scodec.ByteVectorChunk
 import spinoco.protocol.http.header.value.{ContentType, HttpCharset, MediaType}
 
 
@@ -45,11 +45,11 @@ object StreamBodyEncoder {
     StreamBodyEncoder(ContentType(MediaType.`application/octet-stream`, None, None)) { _.flatMap { bv => Stream.chunk(ByteVectorChunk(bv)) } }
 
   /** encoder that encodes utf8 string, with `text/plain` utf8 content type **/
-  def utf8StringEncoder[F[_]](implicit F: Catchable[F]) : StreamBodyEncoder[F, String] =
+  def utf8StringEncoder[F[_]](implicit F: MonadError[F, Throwable]) : StreamBodyEncoder[F, String] =
     byteVectorEncoder mapInF[String] { s =>
       ByteVector.encodeUtf8(s) match {
         case Right(bv) => F.pure(bv)
-        case Left(err) => F.fail[ByteVector](new Throwable(s"Failed to encode string: $err ($s) "))
+        case Left(err) => F.raiseError[ByteVector](new Throwable(s"Failed to encode string: $err ($s) "))
       }
     } withContentType ContentType(MediaType.`text/plain`, Some(HttpCharset.`UTF-8`), None)
 

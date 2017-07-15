@@ -1,6 +1,7 @@
 package spinoco.fs2.http.util
 
-import fs2.{Chunk, Stream, Task}
+import cats.effect.IO
+import fs2._
 import org.scalacheck.Prop._
 import org.scalacheck.{Arbitrary, Gen, Properties}
 import scodec.bits.Bases.{Alphabets, Base64Alphabet}
@@ -23,12 +24,13 @@ object UtilSpec extends Properties("util"){
   }
 
   property("encodes.base64") = forAll { sample: EncodingSample =>
-    Stream.chunk[Task,Byte](Chunk.bytes(sample.text.getBytes)).chunkLimit(sample.chunkSize).flatMap(Stream.chunk)
+    Stream.chunk[Byte](Chunk.bytes(sample.text.getBytes)).chunkLimit(sample.chunkSize).flatMap(Stream.chunk[Byte])
+    .covary[IO]
     .through(util.encodeBase64Raw(sample.alphabet))
     .chunks
     .fold(ByteVector.empty){ case (acc, n) => acc ++ chunk2ByteVector(n)}
     .map(_.decodeUtf8)
-    .runLog.unsafeRun() ?= Vector(
+    .runLog.unsafeRunSync() ?= Vector(
       Right(ByteVector.view(sample.text.getBytes).toBase64(sample.alphabet))
     )
   }
@@ -36,25 +38,26 @@ object UtilSpec extends Properties("util"){
 
   property("decodes.base64") = forAll { sample: EncodingSample =>
     val encoded = ByteVector.view(sample.text.getBytes).toBase64(sample.alphabet)
-    Stream.chunk[Task,Byte](Chunk.bytes(encoded.getBytes))
-    .chunkLimit(sample.chunkSize).flatMap(Stream.chunk)
+    Stream.chunk[Byte](Chunk.bytes(encoded.getBytes))
+    .covary[IO]
+    .chunkLimit(sample.chunkSize).flatMap(Stream.chunk[Byte])
     .through(util.decodeBase64Raw(sample.alphabet))
     .chunks
     .fold(ByteVector.empty){ case (acc, n) => acc ++ chunk2ByteVector(n)}
     .map(_.decodeUtf8)
-    .runLog.unsafeRun() ?= Vector(
+    .runLog.unsafeRunSync() ?= Vector(
       Right(sample.text)
     )
   }
 
   property("encodes.decodes.base64") =  forAll { sample: EncodingSample =>
     val r =
-      Stream.chunk[Task,Byte](Chunk.bytes(sample.text.getBytes)).chunkLimit(sample.chunkSize).flatMap(Stream.chunk)
+      Stream.chunk[Byte](Chunk.bytes(sample.text.getBytes)).covary[IO].chunkLimit(sample.chunkSize).flatMap(Stream.chunk[Byte])
       .through(util.encodeBase64Raw(sample.alphabet))
       .through(util.decodeBase64Raw(sample.alphabet))
       .chunks
       .fold(ByteVector.empty){ case (acc, n) => acc ++ chunk2ByteVector(n)}
-      .runLog.unsafeRun()
+      .runLog.unsafeRunSync()
 
 
 

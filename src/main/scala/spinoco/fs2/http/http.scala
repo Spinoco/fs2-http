@@ -2,14 +2,16 @@ package spinoco.fs2
 
 import java.net.InetSocketAddress
 import java.nio.channels.AsynchronousChannelGroup
+import java.util.concurrent.Executors
 import javax.net.ssl.SSLContext
 
-import fs2.{Strategy, Stream}
-import fs2.util._
+import cats.effect.Effect
+import fs2._
 import scodec.Codec
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 
@@ -44,7 +46,8 @@ package object http {
    )(
      implicit
      AG: AsynchronousChannelGroup
-     , F: Async[F]
+     , EC: ExecutionContext
+     , F: Effect[F]
    ):Stream[F,Unit] = HttpServer(
     maxConcurrent = maxConcurrent
     , receiveBufferSize = receiveBufferSize
@@ -69,9 +72,14 @@ package object http {
   def client[F[_]](
    requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
    , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
-   , sslStrategy: => Strategy = Strategy.fromCachedDaemonPool("fs2-http-ssl")
+   , sslStrategy: => ExecutionContext =  ExecutionContext.fromExecutorService(Executors.newCachedThreadPool(util.mkThreadFactory("fs2-http-ssl", daemon = true)))
    , sslContext: => SSLContext = { val ctx = SSLContext.getInstance("TLS"); ctx.init(null,null,null); ctx }
-  )(implicit AG: AsynchronousChannelGroup, F: Async[F]):F[HttpClient[F]] =
+  )(
+    implicit
+    AG: AsynchronousChannelGroup
+    , EC: ExecutionContext
+    , F: Effect[F]
+  ):F[HttpClient[F]] =
     HttpClient(requestCodec, responseCodec, sslStrategy, sslContext)
 
 }

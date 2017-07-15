@@ -3,12 +3,13 @@ package spinoco.fs2.http
 import java.net.InetSocketAddress
 import java.nio.channels.AsynchronousChannelGroup
 
+import cats.effect.Effect
 import fs2._
-import fs2.util.Async
 import scodec.Codec
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader, HttpStatusCode}
 
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 
@@ -44,8 +45,9 @@ object HttpServer {
   )(
     implicit
     AG: AsynchronousChannelGroup
-    , F: Async[F]
-  ):Stream[F,Unit] = {
+    , EC: ExecutionContext
+    , F: Effect[F]
+  ): Stream[F,Unit] = {
     import Stream._
     import internal._
     val (initial, readDuration) = requestHeaderReceiveTimeout match {
@@ -53,32 +55,32 @@ object HttpServer {
       case _ => (false, 0.millis)
     }
 
-    concurrent.join(maxConcurrent)(
-      io.tcp.server(bindTo, receiveBufferSize = receiveBufferSize).map { _.flatMap { socket =>
-        eval(async.signalOf(initial)).flatMap { timeoutSignal =>
-          readWithTimeout[F](socket, readDuration, timeoutSignal.get, receiveBufferSize)
-          .through(HttpRequest.fromStream(maxHeaderSize, requestCodec))
-          .flatMap { read => eval_(timeoutSignal.set(false)) ++ emit(read) }
-          .attempt.flatMap { attempt =>
-            def send(request:Option[HttpRequestHeader]): Pipe[F, HttpResponse[F], Unit] = {
-              _.flatMap { resp =>
-                HttpResponse.toStream(resp, responseCodec).through(socket.writes()).onFinalize(socket.endOfOutput)
-                .attempt.flatMap {
-                  case Left(err) => sendFailure(request, resp, err)
-                  case _ => Stream.empty
-                }
+
+    io.tcp.server(bindTo, receiveBufferSize = receiveBufferSize).map { _.flatMap { socket =>
+      eval(async.signalOf(initial)).flatMap { timeoutSignal =>
+        readWithTimeout[F](socket, readDuration, timeoutSignal.get, receiveBufferSize)
+        .through(HttpRequest.fromStream(maxHeaderSize, requestCodec))
+        .flatMap { read => eval_(timeoutSignal.set(false)) ++ emit(read) }
+        .attempt.flatMap { attempt =>
+          def send(request:Option[HttpRequestHeader]): Pipe[F, HttpResponse[F], Unit] = {
+            _.flatMap { resp =>
+              HttpResponse.toStream(resp, responseCodec).through(socket.writes()).onFinalize(socket.endOfOutput)
+              .attempt.flatMap {
+                case Left(err) => sendFailure(request, resp, err)
+                case _ => Stream.empty
               }
             }
-
-            attempt match {
-              case Left(err) => requestFailure(err) through send(None)
-              case Right((request, body)) => service(request, body).take(1) through send(Some(request))
-            }
           }
-          .drain
+
+          attempt match {
+            case Left(err) => requestFailure(err) through send(None)
+            case Right((request, body)) => service(request, body).take(1) through send(Some(request))
+          }
         }
-      }}
-    )
+        .drain
+      }
+    }}.join(maxConcurrent)
+
 
   }
 
@@ -86,8 +88,8 @@ object HttpServer {
   def handleRequestParseError[F[_]](err: Throwable): Stream[F, HttpResponse[F]] = {
     Stream.suspend {
       err.printStackTrace()
-      Stream.emit(HttpResponse(HttpStatusCode.BadRequest))
-    }
+      Stream.emit(HttpResponse[F](HttpStatusCode.BadRequest))
+    }.covary[F]
   }
 
   /** default handler for failures of sending request/response **/

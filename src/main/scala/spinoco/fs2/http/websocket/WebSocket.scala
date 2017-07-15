@@ -2,16 +2,17 @@ package spinoco.fs2.http.websocket
 
 
 import java.nio.channels.AsynchronousChannelGroup
+import java.util.concurrent.Executors
 import javax.net.ssl.SSLContext
 
+import cats.effect.Effect
 import fs2._
 import fs2.async.mutable.Queue
-import fs2.util.Async
 import scodec.Attempt.{Failure, Successful}
 import scodec.bits.ByteVector
 import scodec.{Codec, Decoder, Encoder}
 import spinoco.fs2.http.HttpResponse
-import spinoco.fs2.interop.scodec.ByteVectorChunk
+import fs2.interop.scodec.ByteVectorChunk
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 import spinoco.protocol.http.header._
 import spinoco.protocol.http._
@@ -20,6 +21,7 @@ import spinoco.protocol.websocket.{OpCode, WebSocketFrame}
 import spinoco.protocol.websocket.codec.WebSocketFrameCodec
 import spinoco.fs2.http.util.chunk2ByteVector
 
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.util.Random
 
@@ -50,7 +52,8 @@ object WebSocket {
     implicit
     R: Decoder[I]
     , W: Encoder[O]
-    , F: Async[F]
+    , F: Effect[F]
+    , EC: ExecutionContext
     , S: Scheduler
   ): Stream[F,HttpResponse[F]] = {
     Stream.emit(
@@ -91,21 +94,22 @@ object WebSocket {
     , maxFrameSize: Int = 1024*1024
     , requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
     , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
-    , sslStrategy: => Strategy = Strategy.fromCachedDaemonPool("fs2-http-ssl")
+    , sslES: => ExecutionContext = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool(spinoco.fs2.http.util.mkThreadFactory("fs2-http-ssl", daemon = true)))
     , sslContext: => SSLContext = { val ctx = SSLContext.getInstance("TLS"); ctx.init(null,null,null); ctx }
   )(
     implicit
     R: Decoder[I]
     , W: Encoder[O]
     , AG: AsynchronousChannelGroup
-    , F: Async[F]
+    , EC: ExecutionContext
+    , F: Effect[F]
     , S: Scheduler
   ): Stream[F, Option[HttpResponseHeader]] = {
     import spinoco.fs2.http.internal._
     import Stream._
     eval(addressForRequest(if (request.secure) HttpScheme.WSS else HttpScheme.WS, request.hostPort)).flatMap { address =>
     io.tcp.client(address, receiveBufferSize = receiveBufferSize)
-    .evalMap { socket => if (request.secure) liftToSecure(sslStrategy, sslContext)(socket) else F.pure(socket) }
+    .evalMap { socket => if (request.secure) liftToSecure(sslES, sslContext)(socket) else F.pure(socket) }
     .flatMap { socket =>
       val (header, fingerprint) = impl.createRequestHeaders(request.header)
       requestCodec.encode(header) match {
@@ -221,15 +225,16 @@ object WebSocket {
       implicit
       R: Decoder[I]
       , W: Encoder[O]
-      , F: Async[F]
+      , F: Effect[F]
+      , EC: ExecutionContext
       , S: Scheduler
     ):Pipe[F, Byte, Byte] = { source: Stream[F, Byte] => Stream.suspend {
       Stream.eval(async.unboundedQueue[F, PingPong]).flatMap { pingPongQ =>
-        val metronome = pingInterval match {
+        val metronome: Stream[F, Unit] = pingInterval match {
           case fin: FiniteDuration => time.awakeEvery[F](fin).map { _ => () }
           case inf => Stream.empty
         }
-        val control = controlStream(pingPongQ.dequeue, metronome, maxUnanswered = 3, flag = client2Server)
+        val control = controlStream[F](pingPongQ.dequeue, metronome, maxUnanswered = 3, flag = client2Server)
 
         source
         .through(decodeWebSocketFrame[F](maxFrameSize, client2Server))
@@ -294,26 +299,30 @@ object WebSocket {
           case None => (acc, data)
         }
       }
-      def go(buff: ByteVector): Handle[F, Byte] => Pull[F, WebSocketFrame, Unit] = { h0 =>
+      def go(buff: ByteVector): Stream[F, Byte] => Pull[F, WebSocketFrame, Unit] = { h0 =>
         if (buff.size > maxFrameSize) Pull.fail(new Throwable(s"Size of websocket frame exceeded max size: $maxFrameSize, current: ${buff.size}, $buff"))
         else {
-          h0.receive { case (chunk, h) =>
-            val data = buff ++ chunk2ByteVector(chunk)
-            cutFrames(data) match {
-              case (rawFrames, _) if rawFrames.isEmpty => go(data)(h)
-              case (rawFrames, dataTail) =>
-                val pulls = rawFrames.map { data =>
-                  WebSocketFrameCodec.codec.decodeValue(data.bits) match {
-                    case Failure(err) => Pull.fail(new Throwable(s"Failed to decode websocket frame: $err, $data"))
-                    case Successful(wsFrame) => Pull.output1(wsFrame)
+          h0.pull.unconsChunk flatMap {
+            case None => Pull.done  // todo: is ok to silently ignore buffer remainder ?
+
+            case Some((chunk, tl)) =>
+              val data = buff ++ chunk2ByteVector(chunk)
+              cutFrames(data) match {
+                case (rawFrames, _) if rawFrames.isEmpty => go(data)(tl)
+                case (rawFrames, dataTail) =>
+                  val pulls = rawFrames.map { data =>
+                    WebSocketFrameCodec.codec.decodeValue(data.bits) match {
+                      case Failure(err) => Pull.fail(new Throwable(s"Failed to decode websocket frame: $err, $data"))
+                      case Successful(wsFrame) => Pull.output1(wsFrame)
+                    }
                   }
-                }
-                pulls.reduce(_ >> _) >> go(dataTail)(h)
-            }
+                  // pulls nonempty
+                  pulls.reduce(_ >> _) >> go(dataTail)(tl)
+              }
           }
         }
       }
-      _ pull go(ByteVector.empty)
+      src => go(ByteVector.empty)(src).stream
     }
 
     /**
@@ -336,20 +345,22 @@ object WebSocket {
         }
       }
 
-      def go(buff:Vector[WebSocketFrame]):Handle[F, WebSocketFrame] => Pull[F, Frame[A], Unit] = {
-        _.receive1 { case (frame, h) =>
-          frame.opcode match {
-            case OpCode.Continuation => go(buff :+ frame)(h)
-            case OpCode.Text => decode(buff :+ frame).flatMap { decoded => Pull.output1(Frame.Text(decoded)) >> go(Vector.empty)(h) }
-            case OpCode.Binary =>  decode(buff :+ frame).flatMap { decoded => Pull.output1(Frame.Binary(decoded)) >> go(Vector.empty)(h) }
-            case OpCode.Ping => Pull.eval(pongQ.enqueue1(PingPong.Ping)) >> go(buff)(h)
-            case OpCode.Pong => Pull.eval(pongQ.enqueue1(PingPong.Pong)) >> go(buff)(h)
-            case OpCode.Close => Pull.done
-          }
+      def go(buff:Vector[WebSocketFrame]): Stream[F, WebSocketFrame] => Pull[F, Frame[A], Unit] = {
+        _.pull.uncons1 flatMap {
+          case None => Pull.done  // todo: is ok to ignore remainder in buffer ?
+          case Some((frame, tl)) =>
+            frame.opcode match {
+              case OpCode.Continuation => go(buff :+ frame)(tl)
+              case OpCode.Text => decode(buff :+ frame).flatMap { decoded => Pull.output1(Frame.Text(decoded)) >> go(Vector.empty)(tl) }
+              case OpCode.Binary =>  decode(buff :+ frame).flatMap { decoded => Pull.output1(Frame.Binary(decoded)) >> go(Vector.empty)(tl) }
+              case OpCode.Ping => Pull.eval(pongQ.enqueue1(PingPong.Ping)) >> go(buff)(tl)
+              case OpCode.Pong => Pull.eval(pongQ.enqueue1(PingPong.Pong)) >> go(buff)(tl)
+              case OpCode.Close => Pull.done
+            }
         }
       }
 
-      _ pull go(Vector.empty)
+      src => go(Vector.empty)(src).stream
     }
 
     /**
@@ -403,7 +414,7 @@ object WebSocket {
        , metronome: Stream[F, Unit]
        , maxUnanswered: Int
        , flag: Boolean
-    )(implicit F: Async[F]): Stream[F, WebSocketFrame] = {
+    )(implicit F: Effect[F], EC: ExecutionContext): Stream[F, WebSocketFrame] = {
       (pingPongs either metronome)
       .mapAccumulate(0) { case (pingsSent, in) => in match {
         case Left(PingPong.Pong) => (0, Stream.empty)

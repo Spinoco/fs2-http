@@ -3,7 +3,7 @@ package spinoco.fs2.http.sse
 import fs2._
 import scodec.Attempt
 import scodec.bits.ByteVector
-import spinoco.fs2.interop.scodec.ByteVectorChunk
+import fs2.interop.scodec.ByteVectorChunk
 import spinoco.fs2.http.util.chunk2ByteVector
 
 import scala.util.Try
@@ -51,16 +51,19 @@ object SSEEncoding {
 
     // drops initial Byte Order Mark, if present
     def dropInitial(buff:ByteVector): Pipe[F, Byte, Byte] = {
-      _.uncons.flatMap {
-        case None => Stream.fail(new Throwable("SSE Socket did not contain any data"))
-        case Some((chunk, next)) =>
-          val all = buff ++ chunk2ByteVector(chunk)
-          if (all.size < 2) next through dropInitial(all)
-          else {
-            if (all.startsWith(StartBom)) Stream.chunk(ByteVectorChunk(all.drop(2))) ++ next
-            else Stream.chunk(ByteVectorChunk(all)) ++ next
-          }
+      def go(in: Stream[F, Byte]) : Pull[F, Byte, Unit] = {
+        in.pull.unconsChunk.flatMap {
+          case None => Pull.fail(new Throwable("SSE Socket did not contain any data"))
+          case Some((chunk, next)) =>
+            val all = buff ++ chunk2ByteVector(chunk)
+            if (all.size < 2) go(next)
+            else {
+              if (all.startsWith(StartBom)) Pull.output(ByteVectorChunk(all.drop(2))) >> go(next)
+              else Pull.output(ByteVectorChunk(all)) >> go(next)
+            }
+        }
       }
+      go(_).stream
     }
 
     // makes lines out of incoming bytes. Lines are utf-8 decoded
@@ -74,16 +77,19 @@ object SSEEncoding {
     // outgoing vectors are guaranteed tobe nonEmpty
     // note that this splits by empty lines.
     // the last event is emitted only if it is terminated by empty line
-    def mkEvents: Pipe[F, String, Seq[String]] = {
-      def go(buff: Vector[String]): Handle[F, String] => Pull[F, Seq[String], Unit] = {
-        _ receive  { case (lines, h) =>
-            val event = lines.toList.takeWhile(_.nonEmpty)
-            if (event.size == lines.size) go(buff)(h)
-            else Pull.output1(event) >> go(Vector.empty)(h.push(lines.drop(event.size + 1)))
+    def mkEvents: Pipe[F, String, Seq[String]] = { src =>
+      def go(buff: Vector[String], in: Stream[F, String]): Pull[F, Seq[String], Unit] = {
+        in.pull.unconsChunk.flatMap {
+          case None => Pull.output1(buff)
+          case Some((lines, tl)) =>
+            val linesList = lines.toList
+            val event = linesList.takeWhile(_.nonEmpty)
+            if (event.size == linesList.size) go(buff, tl)
+            else Pull.output1(event) >> go(Vector.empty, Stream.emits(linesList.drop(event.size + 1)) ++ tl)
         }
       }
 
-      _ filter(! _.startsWith(":")) pull go(Vector.empty)
+      go(Vector.empty, src filter(! _.startsWith(":"))).stream
     }
 
 

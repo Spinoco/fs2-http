@@ -31,8 +31,9 @@ lazy val commonSettings = Seq(
      , "org.scalacheck" %% "scalacheck" % "1.13.4" % "test"
      , "com.spinoco" %% "protocol-http" % "0.1.8"
      , "com.spinoco" %% "protocol-websocket" % "0.1.8"
-     , "co.fs2" %% "fs2-core" % "0.9.5"
-     , "co.fs2" %% "fs2-io" % "0.9.5"
+     , "co.fs2" %% "fs2-core" % "0.10.0-M3"
+     , "co.fs2" %% "fs2-io" % "0.10.0-M3"
+     , "co.fs2" %% "fs2-scodec" % "0.10.0-M3"
    ),
    scmInfo := Some(ScmInfo(url("https://github.com/Spinoco/fs2-http"), "git@github.com:Spinoco/fs2-http.git")),
    homepage := None,

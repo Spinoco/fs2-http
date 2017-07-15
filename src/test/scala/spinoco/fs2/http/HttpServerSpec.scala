@@ -2,6 +2,7 @@ package spinoco.fs2.http
 
 import java.net.InetSocketAddress
 
+import cats.effect.IO
 import fs2._
 import org.scalacheck.Properties
 import org.scalacheck.Prop._
@@ -16,8 +17,8 @@ import scala.concurrent.duration._
 object HttpServerSpec extends Properties("HttpServer"){
   import Resources._
 
-  def echoService(request: HttpRequestHeader, body: Stream[Task,Byte]): Stream[Task,HttpResponse[Task]] = {
-    if (request.path != Uri.Path / "echo") Stream.emit(HttpResponse(HttpStatusCode.Ok).withUtf8Body("Hello World"))
+  def echoService(request: HttpRequestHeader, body: Stream[IO,Byte]): Stream[IO,HttpResponse[IO]] = {
+    if (request.path != Uri.Path / "echo") Stream.emit(HttpResponse[IO](HttpStatusCode.Ok).withUtf8Body("Hello World")).covary[IO]
     else {
       val ct =  request.headers.collectFirst { case `Content-Type`(ct0) => ct0 }.getOrElse(ContentType(MediaType.`application/octet-stream`, None, None))
       val size = request.headers.collectFirst { case `Content-Length`(sz) => sz }.getOrElse(0l)
@@ -27,34 +28,35 @@ object HttpServerSpec extends Properties("HttpServer"){
     }
   }
 
-  def failRouteService(request: HttpRequestHeader, body: Stream[Task,Byte]): Stream[Task,HttpResponse[Task]] = {
+  def failRouteService(request: HttpRequestHeader, body: Stream[IO,Byte]): Stream[IO,HttpResponse[IO]] = {
     Stream.fail(new Throwable("Booom!"))
   }
 
-  def failingResponse(request: HttpRequestHeader, body: Stream[Task,Byte]): Stream[Task,HttpResponse[Task]] = Stream {
-    HttpResponse(HttpStatusCode.Ok).copy(body = Stream.fail(new Throwable("Kaboom!")))
-  }
+  def failingResponse(request: HttpRequestHeader, body: Stream[IO,Byte]): Stream[IO,HttpResponse[IO]] = Stream {
+    HttpResponse(HttpStatusCode.Ok).copy(body = Stream.fail(new Throwable("Kaboom!")).covary[IO])
+  }.covary[IO]
 
 
   property("simultaneous-requests") = secure {
     // run up to count parallel requests and then make sure all of them pass within timeout
     val count = 100
 
-    def clients : Stream[Task, Stream[Task, (Int, Boolean)]] = {
-      val request = HttpRequest.get[Task](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
-      Stream.eval(client[Task]()).flatMap { httpClient =>
+    def clients : Stream[IO, Stream[IO, (Int, Boolean)]] = {
+      val request = HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
+      Stream.eval(client[IO]()).flatMap { httpClient =>
       Stream.range(0,count).unchunk.map { idx =>
         httpClient.request(request).map(resp => idx -> (resp.header.status == HttpStatusCode.Ok))
       }}
     }
 
 
-    concurrent.join(Int.MaxValue)(Stream(
-      http.server[Task](new InetSocketAddress("127.0.0.1", 9090))(echoService).drain
-    ) ++ time.sleep_[Task](1.second) ++ clients)
+    (Stream(
+      http.server[IO](new InetSocketAddress("127.0.0.1", 9090))(echoService).drain
+    ).covary[IO] ++ time.sleep_[IO](1.second) ++ clients)
+    .join(Int.MaxValue)
     .take(count)
     .filter { case (idx, success) => success }
-    .runLog.unsafeTimed(30.seconds).unsafeRun().size ?= count
+    .runLog.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
 
 
 
@@ -64,12 +66,12 @@ object HttpServerSpec extends Properties("HttpServer"){
     // run up to count parallel requests with body,  and then make sure all of them pass within timeout with body echoed back
     val count = 100
 
-    def clients : Stream[Task, Stream[Task, (Int, Boolean)]] = {
+    def clients : Stream[IO, Stream[IO, (Int, Boolean)]] = {
       val request =
-        HttpRequest.get[Task](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
+        HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
        .withBody("Hello")(BodyEncoder.utf8String)
 
-      Stream.eval(client[Task]()).flatMap { httpClient =>
+      Stream.eval(client[IO]()).flatMap { httpClient =>
         Stream.range(0,count).unchunk.map { idx =>
           httpClient.request(request).flatMap (resp =>
             Stream.eval(resp.bodyAsString).map { attempt =>
@@ -80,13 +82,13 @@ object HttpServerSpec extends Properties("HttpServer"){
         }}
     }
 
-    ( time.sleep_[Task](3.second) ++
-    concurrent.join(Int.MaxValue)(Stream(
-      http.server[Task](new InetSocketAddress("127.0.0.1", 9090))(echoService).drain
-    ) ++ time.sleep_[Task](1.second) ++ clients))
+    ( time.sleep_[IO](3.second) ++
+    (Stream(
+      http.server[IO](new InetSocketAddress("127.0.0.1", 9090))(echoService).drain
+    ).covary[IO] ++ time.sleep_[IO](1.second) ++ clients).join(Int.MaxValue))
     .take(count)
     .filter { case (idx, success) => success }
-    .runLog.unsafeTimed(30.seconds).unsafeRun().size ?= count
+    .runLog.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
 
   }
 
@@ -95,28 +97,28 @@ object HttpServerSpec extends Properties("HttpServer"){
     // run up to count parallel requests with body, server shall fail each, nevertheless response shall be delivered.
     val count = 100
 
-    def clients : Stream[Task, Stream[Task, (Int, Boolean)]] = {
+    def clients : Stream[IO, Stream[IO, (Int, Boolean)]] = {
       val request =
-        HttpRequest.get[Task](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
+        HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
 
 
-      Stream.eval(client[Task]()).flatMap { httpClient =>
+      Stream.eval(client[IO]()).flatMap { httpClient =>
       Stream.range(0,count).unchunk.map { idx =>
       httpClient.request(request).map { resp =>
         idx -> (resp.header.status == HttpStatusCode.BadRequest)
       }}}
     }
 
-    (time.sleep_[Task](3.second) ++
-    concurrent.join(Int.MaxValue)(Stream(
-      http.server[Task](
+    (time.sleep_[IO](3.second) ++
+    (Stream(
+      http.server[IO](
         new InetSocketAddress("127.0.0.1", 9090)
-      , requestFailure = _ => Stream(HttpResponse(HttpStatusCode.BadRequest))
+      , requestFailure = _ => Stream(HttpResponse[IO](HttpStatusCode.BadRequest)).covary[IO]
       )(failRouteService).drain
-    ) ++ time.sleep_[Task](1.second) ++ clients))
+    ).covary[IO] ++ time.sleep_[IO](1.second) ++ clients).join(Int.MaxValue))
       .take(count)
       .filter { case (idx, success) => success }
-      .runLog.unsafeTimed(30.seconds).unsafeRun().size ?= count
+      .runLog.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
   }
 
 
@@ -124,11 +126,11 @@ object HttpServerSpec extends Properties("HttpServer"){
     // run up to count parallel requests with body, server shall fail each (when sending body), nevertheless response shall be delivered.
     val count = 100
 
-    def clients : Stream[Task, Stream[Task, (Int, Boolean)]] = {
+    def clients : Stream[IO, Stream[IO, (Int, Boolean)]] = {
       val request =
-        HttpRequest.get[Task](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
+        HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
 
-      Stream.eval(client[Task]()).flatMap { httpClient =>
+      Stream.eval(client[IO]()).flatMap { httpClient =>
         Stream.range(0,count).unchunk.map { idx =>
           httpClient.request(request).map { resp =>
             idx -> (resp.header.status == HttpStatusCode.Ok) // body won't be consumed, and request was succesfully sent
@@ -137,16 +139,16 @@ object HttpServerSpec extends Properties("HttpServer"){
       }
     }
 
-    (time.sleep_[Task](3.second) ++
-    concurrent.join(Int.MaxValue)(Stream(
-      http.server[Task](
+    (time.sleep_[IO](3.second) ++
+    (Stream(
+      http.server[IO](
         new InetSocketAddress("127.0.0.1", 9090)
         , sendFailure = (_, _, _) => Stream.empty
       )(failingResponse).drain
-    ) ++ time.sleep_[Task](1.second) ++ clients))
+    ).covary[IO] ++ time.sleep_[IO](1.second) ++ clients).join(Int.MaxValue))
       .take(count)
       .filter { case (idx, success) => success }
-      .runLog.unsafeTimed(30.seconds).unsafeRun().size ?= count
+      .runLog.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
   }
 
 

@@ -1,5 +1,6 @@
 package spinoco.fs2.http.routing
 
+import cats.effect.IO
 import fs2._
 import org.scalacheck.Properties
 import org.scalacheck.Prop._
@@ -15,16 +16,16 @@ object MatcherSpec extends Properties("Matcher"){
   def requestAt(s: String): HttpRequestHeader =
     request.copy(path = Uri.Path.fromUtf8String(s))
 
-  implicit class RouteTaskInstance(val self: Route[Task]) {
-    def matches(request: HttpRequestHeader, body: Stream[Task, Byte] = Stream.empty): MatchResult[Task, Stream[Task, HttpResponse[Task]]] =
-      Matcher.run(self)(request, body).unsafeRun()
+  implicit class RouteTaskInstance(val self: Route[IO]) {
+    def matches(request: HttpRequestHeader, body: Stream[IO, Byte] = Stream.empty.covaryAll[IO, Byte]): MatchResult[IO, Stream[IO, HttpResponse[IO]]] =
+      Matcher.run(self)(request, body).unsafeRunSync()
   }
 
-  val RespondOk: Stream[Task, HttpResponse[Task]] = Stream.emit(HttpResponse(HttpStatusCode.Ok))
+  val RespondOk: Stream[IO, HttpResponse[IO]] = Stream.emit(HttpResponse[IO](HttpStatusCode.Ok)).covary[IO]
 
   property("matches-uri") = secure {
 
-    val r: Route[Task] = "hello" / "world" map { _ => RespondOk }
+    val r: Route[IO] = "hello" / "world" map { _ => RespondOk }
 
     (r matches requestAt("/hello/world") isSuccess) &&
     (r matches requestAt("/hello/world2") isFailure)
@@ -33,7 +34,7 @@ object MatcherSpec extends Properties("Matcher"){
 
 
   property("matches-uri-alternative") = secure {
-    val r: Route[Task] = "hello" / choice(
+    val r: Route[IO] = "hello" / choice(
       "world"
       , "nation" / ( "greeks" or "romans" )
       , "city" / "of" / "prague"
@@ -51,7 +52,7 @@ object MatcherSpec extends Properties("Matcher"){
 
 
   property("matches-deep-uri") = secure {
-    val r: Route[Task] = (1 until 10000).foldLeft[Matcher[Task, String]]("deep" / "0") {
+    val r: Route[IO] = (1 until 10000).foldLeft[Matcher[IO, String]]("deep" / "0") {
       case (m, next) => m / next.toString
     } map { _ => RespondOk }
 
@@ -62,7 +63,7 @@ object MatcherSpec extends Properties("Matcher"){
 
 
   property("matcher-hlist")  = secure {
-    val r: Route[Task] = "hello" :/: "body" :/: as[Int] :/: "foo" :/: as[Long] map { _ => RespondOk }
+    val r: Route[IO] = "hello" :/: "body" :/: as[Int] :/: "foo" :/: as[Long] map { _ => RespondOk }
 
     r matches(requestAt("/hello/body/33/foo/22")) isSuccess
 
@@ -70,7 +71,7 @@ object MatcherSpec extends Properties("Matcher"){
 
 
   property("matcher-advance-recover") = secure {
-    val r: Route[Task] = choice(
+    val r: Route[IO] = choice(
       "hello" / choice (  "user" / "one" ) map { _ => RespondOk }
       , "hello" / "people" map { _ => RespondOk }
     )
@@ -80,7 +81,7 @@ object MatcherSpec extends Properties("Matcher"){
 
 
   property("matches-uri-alternative") = secure {
-    val r: Route[Task] = "hello" / choice(
+    val r: Route[IO] = "hello" / choice(
       "world"
       , "nation" / ( "greeks" or "romans" )
       , "city" / "of" / "prague"
@@ -98,7 +99,7 @@ object MatcherSpec extends Properties("Matcher"){
 
 
   property("matches-deep-uri") = secure {
-    val r: Route[Task] = (1 until 10000).foldLeft[Matcher[Task, String]]("deep" / "0") {
+    val r: Route[IO] = (1 until 10000).foldLeft[Matcher[IO, String]]("deep" / "0") {
       case (m, next) => m / next.toString
     } map { _ => RespondOk }
 
@@ -109,7 +110,7 @@ object MatcherSpec extends Properties("Matcher"){
 
 
   property("matcher-hlist")  = secure {
-    val r: Route[Task] = "hello" :/: "body" :/: as[Int] :/: "foo" :/: as[Long] map { _ => RespondOk }
+    val r: Route[IO] = "hello" :/: "body" :/: as[Int] :/: "foo" :/: as[Long] map { _ => RespondOk }
 
     r matches(requestAt("/hello/body/33/foo/22")) isSuccess
 

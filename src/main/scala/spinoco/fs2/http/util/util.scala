@@ -1,9 +1,16 @@
 package spinoco.fs2.http
 
+import java.lang.Thread.UncaughtExceptionHandler
+import java.util.concurrent.{Executors, ThreadFactory}
+import java.util.concurrent.atomic.AtomicInteger
+
 import fs2._
+import fs2.interop.scodec.ByteVectorChunk
 import scodec.bits.{BitVector, ByteVector}
 import scodec.bits.Bases.{Alphabets, Base64Alphabet}
-import spinoco.fs2.interop.scodec.ByteVectorChunk
+
+import scala.concurrent.ExecutionContext
+import scala.util.control.NonFatal
 
 package object util {
 
@@ -14,14 +21,14 @@ package object util {
     * @param alphabet   Alphabet to use
     * @return
     */
-  def encodeBase64Raw[F[_]](alphabet:Base64Alphabet):Pipe[F, Byte, Byte] = {
-    def go(rem:ByteVector):Handle[F,Byte] => Pull[F, Byte, Unit] = {
-      _.receiveOption {
+  def encodeBase64Raw[F[_]](alphabet:Base64Alphabet): Pipe[F, Byte, Byte] = {
+    def go(rem:ByteVector): Stream[F,Byte] => Pull[F, Byte, Unit] = {
+      _.pull.unconsChunk flatMap {
         case None =>
           if (rem.size == 0) Pull.done
           else Pull.output(ByteVectorChunk(ByteVector.view(rem.toBase64(alphabet).getBytes)))
 
-        case Some((chunk, h)) =>
+        case Some((chunk, tl)) =>
           val n = rem ++ chunk2ByteVector(chunk)
           if (n.size/3 > 0) {
             val pad = n.size % 3
@@ -33,15 +40,15 @@ package object util {
               out(pos) = alphabet.toChar(idx).toByte
               pos = pos + 1
             }
-            Pull.output(ByteVectorChunk(ByteVector.view(out))) >> go(n.takeRight(pad))(h)
+            Pull.output(ByteVectorChunk(ByteVector.view(out))) >> go(n.takeRight(pad))(tl)
           } else {
-            go(n)(h)
+            go(n)(tl)
           }
 
       }
 
     }
-    _.pull(go(ByteVector.empty))
+    src => go(ByteVector.empty)(src).stream
   }
 
   /** encodes base64 encoded stream [[http://tools.ietf.org/html/rfc4648#section-5 RF4648 section 5]]. Whitespaces are ignored **/
@@ -59,11 +66,11 @@ package object util {
     */
   def decodeBase64Raw[F[_]](alphabet:Base64Alphabet):Pipe[F, Byte, Byte] = {
     val Pad = alphabet.pad
-    def go(remAcc:BitVector):Handle[F, Byte] => Pull[F, Byte, Unit] = {
-      _.receiveOption {
+    def go(remAcc:BitVector): Stream[F, Byte] => Pull[F, Byte, Unit] = {
+      _.pull.unconsChunk flatMap {
         case None => Pull.done
 
-        case Some((chunk,h)) =>
+        case Some((chunk,tl)) =>
           val bv = chunk2ByteVector(chunk)
           var acc = remAcc
           var idx = 0
@@ -82,11 +89,11 @@ package object util {
               idx = idx + 1
             }
             val aligned = (acc.size / 8) * 8
-            if (aligned <= 0 && !term) go(acc)(h)
+            if (aligned <= 0 && !term) go(acc)(tl)
             else {
               val (out, rem) = acc.splitAt(aligned)
               if (term) Pull.output(ByteVectorChunk(out.toByteVector))
-              else Pull.output(ByteVectorChunk(out.toByteVector)) >> go(rem)(h)
+              else Pull.output(ByteVectorChunk(out.toByteVector)) >> go(rem)(tl)
             }
 
           } catch {
@@ -95,7 +102,8 @@ package object util {
           }
       }
     }
-    _.pull(go(BitVector.empty))
+    src => go(BitVector.empty)(src).stream
+
   }
 
   /** decodes base64 encoded stream [[http://tools.ietf.org/html/rfc4648#section-5 RF4648 section 5]]. Whitespaces are ignored **/
@@ -112,13 +120,38 @@ package object util {
       case bv: ByteVectorChunk => bv.toByteVector
       case other =>
         val bs = other.toBytes
-        ByteVector(bs.values, bs.offset, bs.size)
+        ByteVector(bs.values, 0, bs.size)
     }
   }
 
   /** converts ByteVector to chunk **/
   def byteVector2Chunk(bv: ByteVector): Chunk[Byte] = {
     ByteVectorChunk(bv)
+  }
+
+  /** helper to create named daemon thread factories **/
+  def mkThreadFactory(name: String, daemon: Boolean, exitJvmOnFatalError: Boolean = true): ThreadFactory = {
+    new ThreadFactory {
+      val idx = new AtomicInteger(0)
+      val defaultFactory = Executors.defaultThreadFactory()
+      def newThread(r: Runnable): Thread = {
+        val t = defaultFactory.newThread(r)
+        t.setName(s"$name-${idx.incrementAndGet()}")
+        t.setDaemon(daemon)
+        t.setUncaughtExceptionHandler(new UncaughtExceptionHandler {
+          def uncaughtException(t: Thread, e: Throwable): Unit = {
+            ExecutionContext.defaultReporter(e)
+            if (exitJvmOnFatalError) {
+              e match {
+                case NonFatal(_) => ()
+                case fatal => System.exit(-1)
+              }
+            }
+          }
+        })
+        t
+      }
+    }
   }
 
 }

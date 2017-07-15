@@ -1,7 +1,7 @@
 package spinoco.fs2.http
 
+import cats.effect.Effect
 import fs2._
-import fs2.util.{Async, Catchable, Lub1, Suspendable}
 import scodec.{Attempt, Decoder, Encoder}
 import scodec.bits.Bases.Base64Alphabet
 import scodec.bits.{Bases, ByteVector}
@@ -14,6 +14,7 @@ import spinoco.protocol.http.{HttpMethod, HttpRequestHeader, HttpStatusCode, Uri
 import spinoco.fs2.http.util.chunk2ByteVector
 import spinoco.fs2.http.websocket.{Frame, WebSocket}
 
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 
@@ -26,11 +27,19 @@ package object routing {
 
 
   /** converts supplied route to function that is handled over to server to perform the routing **/
-  def route[F[_]](r:Route[F])(implicit F: Suspendable[F]):(HttpRequestHeader, Stream[F, Byte]) => Stream[F, HttpResponse[F]] = {
+  def route[F[_]](r:Route[F])(implicit F: Effect[F]):(HttpRequestHeader, Stream[F, Byte]) => Stream[F, HttpResponse[F]] = {
     (header, body) =>
       Stream.eval(Matcher.run[F, Stream[F, HttpResponse[F]]](r)(header, body)).flatMap { mr =>
         mr.fold((resp : HttpResponse[F]) => Stream.emit(resp), identity )
       }
+  }
+
+  implicit class StringMatcherSyntax(val self: String) extends AnyVal {
+    def /[F[_], A] (m: Matcher[F, A]) : Matcher[F, A] =
+    string2RequestMatcher(self) / m
+
+    def or[F[_]] (m: Matcher[F, String]) : Matcher[F, String] =
+      string2RequestMatcher(self) or m
   }
 
   implicit def string2RequestMatcher(s:String): Matcher[Nothing, String] =
@@ -62,7 +71,7 @@ package object routing {
     def go(m: Matcher[F,A], next: Seq[Matcher[F, A]]): Matcher[F, A] = {
       next.headOption match {
         case None => m
-        case Some(nm) => m.flatMapR[F, F, A] {
+        case Some(nm) => m.flatMapR[A] {
           case Success(a) => Matcher.success(a)
           case f: Failed[F] => go(nm, next.tail)
         }
@@ -108,7 +117,7 @@ package object routing {
         case None => Matcher.respondWith(HttpStatusCode.BadRequest)
         case Some(bv) => Matcher.success(bv)
       }
-    }(Lub1.id[Nothing])
+    }
 
   /** decodes head of the path to `A` givne supplied decoder from string **/
   def as[A](implicit decoder: StringDecoder[A]): Matcher[Nothing, A] =
@@ -137,7 +146,8 @@ package object routing {
   )(
     implicit R: Decoder[I]
     , W: Encoder[O]
-    , F: Async[F]
+    , F: Effect[F]
+    , EC: ExecutionContext
     , S: Scheduler
   ): Match[Nothing, (Pipe[F, Frame[I], Frame[O]]) => Stream[F, HttpResponse[F]]] =
     Match[Nothing, (Pipe[F, Frame[I], Frame[O]]) => Stream[F, HttpResponse[F]]] { (request, body) =>
@@ -182,7 +192,7 @@ package object routing {
       }
 
     /** extracts last element of the `body` or responds BadRequest if body can't be extracted **/
-    def as[A](implicit D: BodyDecoder[A], F: Catchable[F]): Matcher[F, A] = {
+    def as[A](implicit D: BodyDecoder[A], F: Effect[F]): Matcher[F, A] = {
       header[`Content-Type`].flatMap { ct =>
         bytes.flatMap { s => eval {
           F.map(s.chunks.runLog) { chunks =>

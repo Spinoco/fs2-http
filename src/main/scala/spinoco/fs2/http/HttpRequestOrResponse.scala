@@ -1,12 +1,12 @@
 package spinoco.fs2.http
 
 
-import fs2.util.Catchable
+import cats.effect.Sync
 import fs2.{Stream, _}
 import scodec.Attempt.{Failure, Successful}
 import scodec.{Attempt, Codec, Err}
 import spinoco.fs2.http.body.{BodyDecoder, BodyEncoder, StreamBodyEncoder}
-import spinoco.fs2.interop.scodec.ByteVectorChunk
+import fs2.interop.scodec.ByteVectorChunk
 import spinoco.protocol.http._
 import header._
 import header.value.{ContentType, MediaType}
@@ -64,7 +64,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
     withBody(s)(BodyEncoder.utf8String)
 
   /** Decodes body with supplied decoder of `A` **/
-  def bodyAs[A](implicit D: BodyDecoder[A], F: Catchable[F]): F[Attempt[A]] = {
+  def bodyAs[A](implicit D: BodyDecoder[A], F: Sync[F]): F[Attempt[A]] = {
     withHeaders { _.collectFirst { case `Content-Type`(ct) => ct } match {
       case None => F.pure(Attempt.failure(Err("Content type is not known")))
       case Some(ct) =>
@@ -80,7 +80,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
     self.body.chunks.map(util.chunk2ByteVector)
 
   /** decodes body as string with encoding supplied in ContentType **/
-  def bodyAsString(implicit F: Catchable[F]): F[Attempt[String]] =
+  def bodyAsString(implicit F: Sync[F]): F[Attempt[String]] =
     bodyAs[String](BodyDecoder.stringDecoder, F)
 
   /** updates content type to one specified **/
@@ -162,7 +162,7 @@ final case class HttpRequest[F[_]](
   def withQueryBodyEncoded(q:Uri.Query): Self =
     withBody(q)(BodyEncoder.`x-www-form-urlencoded`)
 
-  def bodyAsQuery(implicit F: Catchable[F]):F[Attempt[Uri.Query]] =
+  def bodyAsQuery(implicit F: Sync[F]):F[Attempt[Uri.Query]] =
     bodyAs[Uri.Query](BodyDecoder.`x-www-form-urlencoded`, F)
 
   /**
@@ -251,7 +251,7 @@ object HttpRequest {
           if (request.bodyIsChunked)  request.body through ChunkedEncoding.encode
           else request.body
 
-        Stream.chunk[F,Byte](ByteVectorChunk(bits.bytes ++ `\r\n\r\n`)) ++ body
+        Stream.chunk[Byte](ByteVectorChunk(bits.bytes ++ `\r\n\r\n`)) ++ body
     }
   }
 
@@ -336,7 +336,7 @@ object HttpResponse {
           if (bodyIsChunked(response.header.headers)) response.body through ChunkedEncoding.encode
           else response.body
 
-        Stream.chunk[F,Byte](ByteVectorChunk(encoded.bytes ++ `\r\n\r\n`)) ++ body
+        Stream.chunk[Byte](ByteVectorChunk(encoded.bytes ++ `\r\n\r\n`)) ++ body
     }
 
   }

@@ -3,9 +3,9 @@ package spinoco.fs2.http
 import java.nio.channels.AsynchronousChannelGroup
 import javax.net.ssl.SSLContext
 
+import cats.effect.Effect
 import fs2._
 import fs2.io.tcp.Socket
-import fs2.util.Async
 import scodec.{Codec, Decoder, Encoder}
 import spinoco.fs2.http.internal.{addressForRequest, liftToSecure, readWithTimeout}
 import spinoco.fs2.http.sse.{SSEDecoder, SSEEncoding}
@@ -14,6 +14,7 @@ import spinoco.protocol.http.header._
 import spinoco.protocol.http.header.value.MediaType
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
 
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 
@@ -109,17 +110,17 @@ trait HttpClient[F[_]] {
      * Creates an Http Client
      * @param requestCodec    Codec used to decode request header
      * @param responseCodec   Codec used to encode response header
-     * @param sslStrategy     Strategy used when communication with SSL (https or wss)
+     * @param sslExecutionContext     Strategy used when communication with SSL (https or wss)
      * @param sslContext      SSL Context to use with SSL Client (https, wss)
      */
   def apply[F[_]](
-    requestCodec: Codec[HttpRequestHeader]
-    , responseCodec: Codec[HttpResponseHeader]
-    , sslStrategy: => Strategy
-    , sslContext: => SSLContext
-  )(implicit AG: AsynchronousChannelGroup, F: Async[F]):F[HttpClient[F]] = F.delay {
+   requestCodec         : Codec[HttpRequestHeader]
+   , responseCodec      : Codec[HttpResponseHeader]
+   , sslExecutionContext: => ExecutionContext
+   , sslContext         : => SSLContext
+  )(implicit AG: AsynchronousChannelGroup, F: Effect[F], EC: ExecutionContext):F[HttpClient[F]] = F.delay {
     lazy val sslCtx = sslContext
-    lazy val sslS = sslStrategy
+    lazy val sslS = sslExecutionContext
 
     new HttpClient[F] {
       def request(
@@ -167,7 +168,7 @@ trait HttpClient[F[_]] {
       , timeout: Duration
       , requestCodec: Codec[HttpRequestHeader]
       , responseCodec: Codec[HttpResponseHeader]
-     )(socket: Socket[F])(implicit F: Async[F]): Stream[F, HttpResponse[F]] = {
+     )(socket: Socket[F])(implicit F: Effect[F], EC: ExecutionContext): Stream[F, HttpResponse[F]] = {
        import Stream._
        timeout match {
          case fin: FiniteDuration =>

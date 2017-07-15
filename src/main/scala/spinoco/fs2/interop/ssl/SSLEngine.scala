@@ -5,10 +5,12 @@ import java.nio.ByteBuffer
 import javax.net.ssl.SSLEngineResult
 import javax.net.{ssl => jns}
 
+import cats.effect.Effect
+import cats.syntax.all._
 import fs2._
-import fs2.util.Async.Ref
-import fs2.util._
-import fs2.util.syntax._
+import fs2.async.Ref
+
+import scala.concurrent.ExecutionContext
 
 
 
@@ -96,8 +98,8 @@ object SSLEngine {
     , appBufferSize: Int = 16*1024
   )(
     implicit
-    F: Async[F]
-    , S: Strategy
+    F: Effect[F]
+    , EC: ExecutionContext
   ): F[SSLEngine[F]] = {
 
     def mkWrapBuffers: (ByteBuffer, ByteBuffer) =  {
@@ -111,8 +113,8 @@ object SSLEngine {
     }
 
 
-    F.refOf(mkWrapBuffers).flatMap  { wrapBuffers =>
-    F.refOf(mkUnWrapBuffers).map { unwrapBuffers =>
+    async.refOf(mkWrapBuffers) flatMap { wrapBuffers =>
+    async.refOf(mkUnWrapBuffers) map { unwrapBuffers =>
 
       new SSLEngine[F] {
         def startHandshake: F[Unit] = F.delay {
@@ -149,7 +151,7 @@ object SSLEngine {
   object impl {
 
 
-    val EmptyBytes: Chunk[Byte] = Chunk.bytes(Array.emptyByteArray, 0, 0)
+    val EmptyBytes: Chunk[Byte] = Chunk.bytes(Array.emptyByteArray)
 
     object EngineOpName extends Enumeration {
       val WRAP, UNWRAP = Value
@@ -178,7 +180,7 @@ object SSLEngine {
       engine: jns.SSLEngine
       , bytes: Chunk[Byte]
       , buffers: Ref[F, (ByteBuffer, ByteBuffer)]
-    )(implicit F: Async[F], S: Strategy): F[Result] =
+    )(implicit F: Effect[F], EC: ExecutionContext): F[Result] =
       wrapUnwrap(engine,bytes,buffers)(EngineOpName.WRAP)
 
     /**
@@ -205,7 +207,7 @@ object SSLEngine {
       engine: jns.SSLEngine
       , bytes: Chunk[Byte]
       , buffers: Ref[F, (ByteBuffer, ByteBuffer)]
-    )(implicit F: Async[F], S: Strategy): F[Result] =
+    )(implicit F: Effect[F], EC: ExecutionContext): F[Result] =
       wrapUnwrap(engine,bytes,buffers)(EngineOpName.UNWRAP)
 
 
@@ -216,7 +218,7 @@ object SSLEngine {
     , buffers: Ref[F, (ByteBuffer, ByteBuffer)]
     )(
       op: EngineOpName.Value
-    )(implicit F: Async[F], S: Strategy): F[Result] = {
+    )(implicit F: Effect[F], EC: ExecutionContext): F[Result] = {
       import  SSLEngineResult.Status._
       import SSLEngineResult.HandshakeStatus._
 
@@ -304,7 +306,7 @@ object SSLEngine {
             bb
           }
         val bs = bytes.toBytes
-        dest.put(bs.values, bs.offset, bs.size).flip()
+        dest.put(bs.values).flip()
         dest
       }
     }
@@ -324,17 +326,17 @@ object SSLEngine {
 
 
 
-    /** runs all available tasks , retruning when tasks has been finished **/
-    def runTasks[F[_]](engine: jns.SSLEngine)(implicit F: Async[F], S: Strategy):F[Unit] = {
+    /** runs all available tasks , returning when tasks has been finished **/
+    def runTasks[F[_]](engine: jns.SSLEngine)(implicit F: Effect[F], EC: ExecutionContext): F[Unit] = {
       F.delay { Option(engine.getDelegatedTask) }.flatMap {
         case None => F.pure(())
         case Some(engineTask) =>
-          F.async[Unit] { cb =>
-            F.delay { S {
+          F.suspend { F.async[Unit] { cb =>
+            EC.execute( new Runnable { def run(): Unit = {
               try { engineTask.run(); cb(Right(())) }
               catch { case t : Throwable => cb(Left(t))}
-            }}
-          } *> runTasks(engine)
+            }})
+          }} *> runTasks(engine)
       }
     }
 
@@ -352,7 +354,7 @@ object SSLEngine {
       val dest = Array.ofDim[Byte](buffer.remaining())
       buffer.get(dest)
       buffer.clear()
-      Chunk.bytes(dest, 0, dest.length)
+      Chunk.bytes(dest)
     }
 
 

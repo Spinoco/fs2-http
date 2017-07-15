@@ -1,5 +1,6 @@
 package spinoco.fs2.http
 
+import cats.effect.IO
 import fs2._
 import org.scalacheck.Properties
 import org.scalacheck.Prop._
@@ -16,12 +17,12 @@ object HttpResponseSpec extends Properties("HttpResponse") {
   property("encode") = secure {
 
     val response =
-      HttpResponse[Task](HttpStatusCode.Ok)
+      HttpResponse[IO](HttpStatusCode.Ok)
       .withUtf8Body("Hello World")
 
     HttpResponse.toStream(response, HttpResponseHeaderCodec.defaultCodec)
       .chunks.runLog.map { _.map(chunk2ByteVector).reduce { _ ++ _ }.decodeUtf8 }
-      .unsafeRun() ?=
+      .unsafeRunSync() ?=
       Right(Seq(
         "HTTP/1.1 200 OK"
         , "Content-Type: text/plain; charset=utf-8"
@@ -44,9 +45,10 @@ object HttpResponseSpec extends Properties("HttpResponse") {
         , "Hello World"
       ).mkString("\r\n").getBytes
     ))
-    .through(HttpResponse.fromStream[Task](4096, HttpResponseHeaderCodec.defaultCodec))
+    .covary[IO]
+    .through(HttpResponse.fromStream[IO](4096, HttpResponseHeaderCodec.defaultCodec))
     .flatMap { response => Stream.eval(response.bodyAsString).map(response.header -> _ ) }
-    .runLog.unsafeRun() ?=
+    .runLog.unsafeRunSync() ?=
     Vector(
       HttpResponseHeader(
         status = HttpStatusCode.Ok

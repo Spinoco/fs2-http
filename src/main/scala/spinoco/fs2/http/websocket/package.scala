@@ -1,10 +1,11 @@
 package spinoco.fs2.http
 
+import cats.effect.Effect
 import fs2._
-import fs2.util.Async
 import scodec.{Decoder, Encoder}
 import spinoco.protocol.http.HttpRequestHeader
 
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 
@@ -33,7 +34,8 @@ package object websocket {
     implicit
     R: Decoder[I]
     , W: Encoder[O]
-    , F: Async[F]
+    , F: Effect[F]
+    , EC: ExecutionContext
     , S: Scheduler
   ): Stream[F, HttpResponse[F]] =
     WebSocket.server(pipe, pingInterval, handshakeTimeout)(header, input)

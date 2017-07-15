@@ -1,5 +1,6 @@
 package spinoco.fs2.http
 
+import cats.effect.IO
 import fs2._
 import org.scalacheck.Properties
 import org.scalacheck.Prop._
@@ -15,14 +16,14 @@ object HttpRequestSpec extends Properties("HttpRequest") {
   property("encode") = secure {
 
     val request =
-      HttpRequest.get[Task](
+      HttpRequest.get[IO](
         Uri.http("www.spinoco.com", "/hello-world.html")
       ).withUtf8Body("Hello World")
 
 
     HttpRequest.toStream(request, HttpRequestHeaderCodec.defaultCodec)
     .chunks.runLog.map { _.map(chunk2ByteVector).reduce { _ ++ _ }.decodeUtf8 }
-    .unsafeRun() ?=
+    .unsafeRunSync() ?=
     Right(Seq(
       "GET /hello-world.html HTTP/1.1"
       , "Host: www.spinoco.com"
@@ -45,12 +46,13 @@ object HttpRequestSpec extends Properties("HttpRequest") {
         , "Hello World"
       ).mkString("\r\n").getBytes
     ))
-    .through(HttpRequest.fromStream[Task](4096,HttpRequestHeaderCodec.defaultCodec))
+    .covary[IO]
+    .through(HttpRequest.fromStream[IO](4096,HttpRequestHeaderCodec.defaultCodec))
     .flatMap { case (header, body) =>
       Stream.eval(body.chunks.runLog.map(_.map(chunk2ByteVector).reduce(_ ++ _).decodeUtf8)).map { bodyString =>
         header -> bodyString
       }
-    }.runLog.unsafeRun() ?= Vector(
+    }.runLog.unsafeRunSync() ?= Vector(
       HttpRequestHeader(
         method = HttpMethod.GET
         , path = Uri.Path / "hello-world.html"

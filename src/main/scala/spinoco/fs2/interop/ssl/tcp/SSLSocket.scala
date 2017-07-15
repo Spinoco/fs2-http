@@ -1,16 +1,19 @@
 package spinoco.fs2.interop.ssl.tcp
 
+
 import java.net.SocketAddress
 import java.nio.channels.InterruptedByTimeoutException
 
+import cats.effect.Effect
+import cats.syntax.all._
+import cats.instances.vector._
 import fs2.async.mutable.Semaphore
 import fs2._
+import fs2.async.Ref
 import fs2.io.tcp.Socket
-import fs2.util.Async
-import fs2.util.Traverse
-import fs2.util.syntax._
 import spinoco.fs2.interop.ssl.SSLEngine
 
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 /**
@@ -31,9 +34,10 @@ object SSLSocket {
      , sslEngine: SSLEngine[F]
    )(
      implicit
-     F: Async[F]
+     F: Effect[F]
+     , EC: ExecutionContext
    ): F[Socket[F]] = {
-    F.refOf(impl.SocketStatus.initial[F]).flatMap { statusRef =>
+    async.refOf(impl.SocketStatus.initial[F]).flatMap { statusRef =>
     async.semaphore(1).flatMap { readSemaphore =>
     async.semaphore(1).flatMap { writeSemaphore =>
     sslEngine.startHandshake.map { _ =>
@@ -41,19 +45,18 @@ object SSLSocket {
       new Socket[F] { self =>
         def readN(numBytes: Int, timeout: Option[FiniteDuration]): F[Option[Chunk[Byte]]] = F.suspend {
           val deadline = timeout.map(_.fromNow)
-          def go(buff:Vector[Chunk[Byte]]):F[Option[Chunk[Byte]]] = {
-            if (deadline.exists(_.isOverdue())) F.fail(new InterruptedByTimeoutException())
+          def go(buff:Segment[Byte, Unit], soFar: Int):F[Option[Chunk[Byte]]] = {
+            if (deadline.exists(_.isOverdue())) F.raiseError(new InterruptedByTimeoutException())
             else {
-              val sofar = buff.map(_.size).sum
-              if (sofar < numBytes) {
-                self.read(numBytes - sofar, deadline.map(_.timeLeft)).flatMap {
-                  case None => if (sofar > 0) F.pure(Some(Chunk.concatBytes(buff))) else F.pure(None)
-                  case Some(bytes) => go(buff :+ bytes)
+              if (soFar < numBytes) {
+                self.read(numBytes - soFar, deadline.map(_.timeLeft)).flatMap {
+                  case None => if (soFar > 0) F.pure(Some(buff.toChunk)) else F.pure(None)
+                  case Some(bytes) => go(buff ++ bytes, soFar + bytes.size)
                 }
-              } else F.pure(Some(Chunk.concatBytes(buff)))
+              } else F.pure(Some(buff.toChunk))
             }
           }
-          go(Vector.empty)
+          go(Segment.empty, 0)
         }
 
         def read(maxBytes: Int, timeout: Option[FiniteDuration]): F[Option[Chunk[Byte]]] =
@@ -94,7 +97,7 @@ object SSLSocket {
 
   object impl {
 
-    private val EmptyBytes: Chunk[Byte] = Chunk.bytes(Array.emptyByteArray, 0, 0)
+    private val EmptyBytes: Chunk[Byte] = Chunk.bytes(Array.emptyByteArray)
 
     /**
       * Status of the socket
@@ -132,26 +135,26 @@ object SSLSocket {
      , sslEngine: SSLEngine[F]
      , bytes: Chunk[Byte]
      , timeout: Option[FiniteDuration]
-     , statusRef: Async.Ref[F, SocketStatus[F]]
+     , statusRef: Ref[F, SocketStatus[F]]
      , writeSemaphore: Semaphore[F]
      , readSemaphore: Semaphore[F]
-    )(implicit F: Async[F]): F[Unit] = {
+    )(implicit F: Effect[F], EC: ExecutionContext): F[Unit] = {
 
       def go(bytes: Chunk[Byte]): F[Unit] = {
         writeSemaphore.increment *> {
         sslEngine.wrapAvailable.flatMap { wrapAvailable =>
-        sslEngine.wrap(bytes.take(wrapAvailable)).flatMap { result =>
+        sslEngine.wrap(bytes.strict.take(wrapAvailable)).flatMap { result =>
         (if (result.output.nonEmpty) socket.write(result.output, timeout) else F.pure(())) *>
         writeSemaphore.decrement *> {
           if (result.closed) F.pure(())
           else {
             if (result.handshake.isEmpty) {
               if (wrapAvailable >= bytes.size) F.pure(())
-              else go(bytes.drop(wrapAvailable))
+              else go(bytes.strict.drop(wrapAvailable))
             }
             else {
               // after succesfull handshake, lets again perform wrap, to make sure all our bytes are written through
-              performHandshake(socket, sslEngine, statusRef, timeout, writeSemaphore, readSemaphore) *> go(bytes.drop(wrapAvailable))
+              performHandshake(socket, sslEngine, statusRef, timeout, writeSemaphore, readSemaphore) *> go(bytes.strict.drop(wrapAvailable))
             }
           }
         }}
@@ -182,10 +185,10 @@ object SSLSocket {
       , sslEngine: SSLEngine[F]
       , maxSize: Int
       , timeout: Option[FiniteDuration]
-      , statusRef: Async.Ref[F, SocketStatus[F]]
+      , statusRef: Ref[F, SocketStatus[F]]
       , writeSemaphore: Semaphore[F]
       , readSemaphore: Semaphore[F]
-    )(implicit F: Async[F]): F[Option[Chunk[Byte]]] = {
+    )(implicit F: Effect[F], EC: ExecutionContext): F[Option[Chunk[Byte]]] = {
       def go: F[Option[Chunk[Byte]]] = {
         readSemaphore.increment *>
         acquireFromBuffer(maxSize, statusRef).flatMap { fromBuffer =>
@@ -226,11 +229,11 @@ object SSLSocket {
       * Invoked when handshake shall be in process and shall finish when handshake is complete
       */
     def awaitHandshakeComplete[F[_]](
-      statusRef: Async.Ref[F, SocketStatus[F]]
-    )(implicit F: Async[F]) : F[Unit] = {
-      F.flatMap(F.ref[Unit]) { signal =>
+      statusRef: Ref[F, SocketStatus[F]]
+    )(implicit F: Effect[F], EC: ExecutionContext) : F[Unit] = {
+      F.flatMap(async.ref[F, Unit]) { signal =>
       F.flatMap(statusRef.modify({ s =>
-        if (s.handshakeInProgress) s.copy(notifyHandshakeDone = s.notifyHandshakeDone :+ signal.setPure(()))
+        if (s.handshakeInProgress) s.copy(notifyHandshakeDone = s.notifyHandshakeDone :+ signal.setAsyncPure(()))
         else s
       })) { change =>
         if (change.previous.handshakeInProgress) signal.get
@@ -254,11 +257,11 @@ object SSLSocket {
     def performHandshake[F[_]](
      socket: Socket[F]
      , sslEngine: SSLEngine[F]
-     , statusRef: Async.Ref[F, SocketStatus[F]]
+     , statusRef: Ref[F, SocketStatus[F]]
      , handshakeTimeout: Option[FiniteDuration]
      , writeSemaphore: Semaphore[F]
      , readSemaphore: Semaphore[F]
-    )(implicit F: Async[F]) : F[Unit] = {
+    )(implicit F: Effect[F], EC: ExecutionContext) : F[Unit] = {
       // todo: correct timeout durations
       // acquires handshake lock or registers when handshake is done
       def acquire: F[Unit] = {
@@ -277,7 +280,7 @@ object SSLSocket {
       def release: F[Unit] = {
         statusRef.modify(_.copy(handshakeInProgress = false, notifyHandshakeDone = Vector.empty)).flatMap { change =>
           if (change.previous.notifyHandshakeDone.isEmpty) F.pure(())
-          else Traverse.vectorInstance.traverse(change.previous.notifyHandshakeDone)(identity).as(())
+          else (change.previous.notifyHandshakeDone).traverse(identity).as(())
         } *> readSemaphore.decrement *> writeSemaphore.decrement
       }
 
@@ -288,7 +291,7 @@ object SSLSocket {
       // note that this is guarded by write semaphore for the wrap and write operation to assure we don't interfere with other write
       def wrap: F[Unit] = {
         def send(data: Vector[Chunk[Byte]]): F[Unit] = {
-          val bytes = Chunk.concatBytes(data)
+          val bytes = Segment.vector(data).flatten.toChunk
           if (bytes.nonEmpty) socket.write(bytes, handshakeTimeout)
           else F.pure(())
         }
@@ -353,22 +356,13 @@ object SSLSocket {
     }
 
 
-
-    /** concats a, b if they are nonempty **/
-    def concat(a: Chunk[Byte], b: Chunk[Byte]) : Chunk[Byte] = {
-      if (a.isEmpty) b
-      else if (b.isEmpty) a
-      else Chunk.concatBytes(Seq(a,b))
-    }
-
-
     // Causes to append supplied chunk to state buffer, if nonempty
     def appendToBuffer[F[_]](
       chunk:Chunk[Byte]
-      , statusRef: Async.Ref[F, SocketStatus[F]]
-    )(implicit F: Async[F]):F[Unit] = {
+      , statusRef: Ref[F, SocketStatus[F]]
+    )(implicit F: Effect[F]):F[Unit] = {
       if (chunk.isEmpty) F.pure(())
-      else F.map(statusRef.modify { s => s.copy(buff = concat(s.buff, chunk)) }) { _ => () }
+      else F.map(statusRef.modify { s => s.copy(buff = (s.buff ++ chunk).toChunk) }) { _ => () }
     }
 
 
@@ -378,13 +372,13 @@ object SSLSocket {
       */
     def acquireFromBuffer[F[_]](
       max: Int
-      , statusRef: Async.Ref[F, SocketStatus[F]]
-    )(implicit F: Async[F]):F[Chunk[Byte]] = {
+      , statusRef: Ref[F, SocketStatus[F]]
+    )(implicit F: Effect[F]):F[Chunk[Byte]] = {
       statusRef.modify2 { s =>
         if (s.buff.isEmpty) s -> EmptyBytes
         else {
-          val res = s.buff.take(max)
-          val rem = s.buff.drop(max)
+          val res = s.buff.strict.take(max)
+          val rem = s.buff.strict.drop(max)
           s.copy(buff = rem) -> res
         }
       }.map(_._2)

@@ -2,6 +2,7 @@ package spinoco.fs2.http.websocket
 
 import java.net.InetSocketAddress
 
+import cats.effect.IO
 import fs2._
 import org.scalacheck.{Gen, Prop, Properties}
 import org.scalacheck.Prop._
@@ -34,16 +35,16 @@ object WebSocketSpec extends Properties("WebSocket") {
 
     var received:List[Frame[String]] = Nil
 
-    def serverEcho: Pipe[Task, Frame[String], Frame[String]] = { in => in }
+    def serverEcho: Pipe[IO, Frame[String], Frame[String]] = { in => in }
 
-    def clientData: Pipe[Task, Frame[String], Frame[String]] = { inbound =>
-      val output =  time.awakeEvery[Task](1.seconds).map { dur => Frame.Text(s" ECHO $dur") }.take(5)
+    def clientData: Pipe[IO, Frame[String], Frame[String]] = { inbound =>
+      val output =  time.awakeEvery[IO](1.seconds).map { dur => Frame.Text(s" ECHO $dur") }.take(5)
       inbound.take(5).map { in => received = received :+ in }
       .mergeDrainL(output)
     }
 
     val serverStream =
-      http.server[Task](new InetSocketAddress("127.0.0.1", 9090))(
+      http.server[IO](new InetSocketAddress("127.0.0.1", 9090))(
         server (
           pipe = serverEcho
           , pingInterval = 500.millis
@@ -52,16 +53,16 @@ object WebSocketSpec extends Properties("WebSocket") {
       )
 
     val clientStream =
-      time.sleep_[Task](3.seconds) ++
+      time.sleep_[IO](3.seconds) ++
       WebSocket.client(
         WebSocketRequest.ws("127.0.0.1", 9090, "/")
         , clientData
       )
 
     val resultClient =
-      (serverStream.drain mergeHaltBoth clientStream).runLog.unsafeTimed(20.seconds).unsafeRun()
+      (serverStream.drain mergeHaltBoth clientStream).runLog.unsafeRunTimed(20.seconds)
 
-    (resultClient ?= Vector(None)) &&
+    (resultClient ?= Some(Vector(None))) &&
       (received.size ?= 5)
 
   }

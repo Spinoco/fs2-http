@@ -1,8 +1,8 @@
 package spinoco.fs2.http.internal
 
 import fs2._
+import fs2.interop.scodec.ByteVectorChunk
 import scodec.bits.ByteVector
-import spinoco.fs2.interop.scodec.ByteVectorChunk
 import spinoco.fs2.http.util.chunk2ByteVector
 
 /**
@@ -11,45 +11,46 @@ import spinoco.fs2.http.util.chunk2ByteVector
 object ChunkedEncoding {
 
 
-
-
-
   /** decodes from the HTTP chunked encoding. After last chunk this terminates. Allows to specify max header size, after which this terminates
     * Please see https://en.wikipedia.org/wiki/Chunked_transfer_encoding for details
     */
-  def decode[F[_]](maxChunkHeaderSize:Int):Pipe[F, Byte, Byte] = {
+  def decode[F[_]](maxChunkHeaderSize:Int): Pipe[F, Byte, Byte] = {
     // on left reading the header of chunk (acting as buffer)
     // on right reading the chunk itself, and storing remaining bytes of the chunk
-    def go(expect:Either[ByteVector,Long]):Handle[F,Byte] => Pull[F,Byte, Unit] = {
-      _.receive { case (chunk,h) =>
-        val bv = chunk2ByteVector(chunk)
-        expect match {
-          case Left(header) =>
-            val nh = header ++ bv
-            val endOfheader = nh.indexOfSlice(`\r\n`)
-            if (endOfheader == 0) go(expect)(h.push(ByteVectorChunk(bv.drop(`\r\n`.size)))) //strip any leading crlf on header, as this starts with /r/n
-            else if (endOfheader < 0 && nh.size > maxChunkHeaderSize) Pull.fail(new Throwable(s"Failed to get Chunk header. Size exceeds max($maxChunkHeaderSize) : ${nh.size} ${nh.decodeUtf8}"))
-            else if (endOfheader < 0) go(Left(nh))(h)
-            else {
-              val (hdr,rem) = nh.splitAt(endOfheader + `\r\n`.size)
-              readChunkedHeader(hdr.dropRight(`\r\n`.size)) match {
-                case None => Pull.fail(new Throwable(s"Failed to parse chunked header : ${hdr.decodeUtf8}"))
-                case Some(0) => Pull.done
-                case Some(sz) => go(Right(sz))(h.push(ByteVectorChunk(rem)))
+    def go(expect:Either[ByteVector,Long], in: Stream[F, Byte]): Pull[F, Byte, Unit] = {
+      in.pull.unconsChunk.flatMap {
+        case None => Pull.done
+        case Some((h, tl)) =>
+          val bv = chunk2ByteVector(h)
+          expect match {
+            case Left(header) =>
+              val nh = header ++ bv
+              val endOfheader = nh.indexOfSlice(`\r\n`)
+              if (endOfheader == 0) go(expect, Stream.chunk(ByteVectorChunk(bv.drop(`\r\n`.size))) ++ tl) //strip any leading crlf on header, as this starts with /r/n
+              else if (endOfheader < 0 && nh.size > maxChunkHeaderSize) Pull.fail(new Throwable(s"Failed to get Chunk header. Size exceeds max($maxChunkHeaderSize) : ${nh.size} ${nh.decodeUtf8}"))
+              else if (endOfheader < 0) go(Left(nh), tl)
+              else {
+                val (hdr,rem) = nh.splitAt(endOfheader + `\r\n`.size)
+                readChunkedHeader(hdr.dropRight(`\r\n`.size)) match {
+                  case None => Pull.fail(new Throwable(s"Failed to parse chunked header : ${hdr.decodeUtf8}"))
+                  case Some(0) => Pull.done
+                  case Some(sz) => go(Right(sz), Stream.chunk(ByteVectorChunk(rem)) ++ tl)
+                }
               }
-            }
 
-          case Right(remains) =>
-            if (remains == bv.size) Pull.output(ByteVectorChunk(bv)) >> go(Left(ByteVector.empty))(h)
-            else if (remains > bv.size) Pull.output(ByteVectorChunk(bv)) >> go(Right(remains - bv.size))(h)
-            else {
-              val (out,next) = bv.splitAt(remains.toInt)
-              Pull.output(ByteVectorChunk(out)) >> go(Left(ByteVector.empty))(h.push(ByteVectorChunk(next)))
-            }
-        }
+            case Right(remains) =>
+              if (remains == bv.size) Pull.output(ByteVectorChunk(bv)) >> go(Left(ByteVector.empty), tl)
+              else if (remains > bv.size) Pull.output(ByteVectorChunk(bv)) >> go(Right(remains - bv.size), tl)
+              else {
+                val (out,next) = bv.splitAt(remains.toInt)
+                Pull.output(ByteVectorChunk(out)) >> go(Left(ByteVector.empty), Stream.chunk(ByteVectorChunk(next)) ++ tl)
+              }
+          }
+
       }
     }
-    _ pull go(Left(ByteVector.empty))
+
+    go(Left(ByteVector.empty), _) stream
   }
 
 
