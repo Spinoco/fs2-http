@@ -69,28 +69,34 @@ case class MyAuthorizationTokenHeader(token: String) extends HttpHeader
 
 ```
 
-First we need to create codec that will encode authorization of our own, and then, when that won't pass, we will try to decode with default. This is quite simply achievable by following code snipped: {
+First we need to create codec that will encode authorization of our own, and then, when that won't pass, we will try to decode with default. This is quite simply achievable by following code snippet:
 
 ```scala
+
+import scodec.Codec
 import scodec.codecs._
+
 import spinoco.protocol.http.codec.helper._
-import spinoco.procotol.http.header.value.Authorization 
+import spinoco.protocol.http.codec.HttpHeaderCodec
+import spinoco.protocol.http.header.HttpHeader
+import spinoco.protocol.http.header.Authorization
+
+case class MyAuthorizationTokenHeader(token: String) extends HttpHeader {
+  val name = "Authorization"
+}
 
 object MyAuthorizationTokenHeader {
+  //codec for `Token sometoken`
 
-  // this is simple codec to decode essentially line `Token sometoken`
-  val codec : Codec[MyAuthorizationTokenHeader) = 
-  (asciiConstant("Token") ~> (whitespace() ~> utf8String)).xmap(
-      { token => MyAuthorizationTokenHeader(token)}
-      , _.token
+  val codec: Codec[MyAuthorizationTokenHeader] =
+    (asciiConstant("Token") ~> (whitespace() ~> utf8String)).xmap(
+      { token => TokenAuthorization(token) }, _.token
     )
-    
-  // this is new codec, that will first try to decode by our codec and then if that fails, will use default authroization codec.   
-  val customAuthorizationHeader: Codec[HttpHeader] = choice(
-     codec.upcast[HttpHeader]
-     , Authroization.codec
-  )
 
+  //codec that first tries `Token sometoken` and then falls back to the known alternatives
+  val customAuthorizationHeader: Codec[HttpHeader] = choice(
+    codec.upcast[HttpHeader], Authorization.codec.headerCodec
+  )
 }
 
 ```
@@ -99,35 +105,38 @@ Once we have that custom codec setup, we only need to plug it to client and/or s
 
 ```scala
 
-import spinoco.protocol.http
-import spinoco.protocol.http.codec.HttpHeaderCodec
 
-  
-val headerCodec: Codec[HttpHeader]= 
- HttpHeaderCodec.codec(Int.MaxValue, ("Authorization" -> MyAuthorizationTokenHeader.customAuthorizationHeader))
- 
+import scodec.Codec
+import spinoco.protocol.http.codec.HttpHeaderCodec
+import spinoco.protocol.http.codec.HttpResponseHeaderCodec
+import spinoco.protocol.http.codec.HttpRequestHeaderCodec
+import spinoco.protocol.http.header.HttpHeader
+
+import spinoco.fs2.http
+
+//codec for the full header, including header name
+val headerCodec: Codec[HttpHeader] =
+  HttpHeaderCodec.codec(Int.MaxValue, ("Authorization" -> MyAuthorizationTokenHeader.customAuthorizationHeader))
 
 http.client(
-   requestCodec = HttpRequestHeaderCodec.codec(headerCodec)
-   , responseCodec = HttpResponseHeaderCodec.codec(headerCodec)
-) map { client => 
- /** your code with client **/
+  requestCodec = HttpRequestHeaderCodec.codec(headerCodec),
+  responseCodec = HttpResponseHeaderCodec.codec(headerCodec)
+) map { client =>
+    /** your code with client **/
+    ()
 }
 
 http.server(
- bindTo = ??? // your ip where you want bind server to 
-   , requestCodec = HttpRequestHeaderCodec.codec(headerCodec)
-   , responseCodec = HttpResponseHeaderCodec.codec(headerCodec)
-) flatMap { server => 
-  /** your code with server **/
+  bindTo = ???, // your ip where you want bind server to 
+  requestCodec = HttpRequestHeaderCodec.codec(headerCodec),
+  responseCodec = HttpResponseHeaderCodec.codec(headerCodec)
+) map {  server =>
+    /** your code with server **/
+    ()
 }
-
 
 ```
 
 ## Summary
 
-Both of these techniques have own advantages and drawbacks. It is up to user to decide whichever suits best. However, as you may see with a little effort you may plug very complex encoding and decoding schemes (even including any binary data) that your application may require. 
-
-
-
+Both of these techniques have own advantages and drawbacks. It is up to user to decide whichever suits best. However, as you may see with a little effort you may plug very complex encoding and decoding schemes (even including any binary data) that your application may require.
