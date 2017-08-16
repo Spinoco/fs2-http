@@ -21,8 +21,15 @@ GenericHeader("Authorization", "Token someAuthorizationToken")
 However to do so we need to supply this codec to the http client and http server. In both cases this is pretty straightforward to do: 
 
 ```scala
-import spinoco.protocol.http
+import scodec.Codec
+import scodec.codecs.utf8
+
+import spinoco.fs2.http
+
 import spinoco.protocol.http.codec.HttpHeaderCodec
+import spinoco.protocol.http.codec.HttpRequestHeaderCodec
+import spinoco.protocol.http.header.GenericHeader
+import spinoco.protocol.http.header.HttpHeader
 
 val genericHeaderAuthCodec: HttpCodec[HttpHeader] = 
  utf8.xmap[GenericHeader](s => GenericHeader("Authorization", s), _.value).upcast[HttpHeader]
@@ -45,8 +52,6 @@ http.server(
 ) flatMap { server => 
   /** your code with server **/
 }
-  
-
 
 ```
 
