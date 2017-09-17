@@ -7,6 +7,7 @@ import fs2._
 import org.scalacheck.Properties
 import org.scalacheck.Prop._
 import spinoco.fs2.http
+import spinoco.fs2.http.body.BodyEncoder
 //import spinoco.fs2.http.body.BodyEncoder
 import spinoco.protocol.http.header.{`Content-Length`, `Content-Type`}
 import spinoco.protocol.http.header.value.{ContentType, MediaType}
@@ -36,7 +37,7 @@ object HttpServerSpec extends Properties("HttpServer"){
     HttpResponse(HttpStatusCode.Ok).copy(body = Stream.fail(new Throwable("Kaboom!")).covary[IO])
   }.covary[IO]
 
-/*
+
   property("simultaneous-requests") = secure {
     // run up to count parallel requests and then make sure all of them pass within timeout
     val count = 100
@@ -52,7 +53,7 @@ object HttpServerSpec extends Properties("HttpServer"){
 
     (Stream(
       http.server[IO](new InetSocketAddress("127.0.0.1", 9090))(echoService).drain
-    ).covary[IO] ++ time.sleep_[IO](1.second) ++ clients)
+    ).covary[IO] ++ Sch.sleep_[IO](1.second) ++ clients)
     .join(Int.MaxValue)
     .take(count)
     .filter { case (idx, success) => success }
@@ -82,17 +83,17 @@ object HttpServerSpec extends Properties("HttpServer"){
         }}
     }
 
-    ( time.sleep_[IO](3.second) ++
+    ( Sch.sleep_[IO](3.second) ++
     (Stream(
       http.server[IO](new InetSocketAddress("127.0.0.1", 9090))(echoService).drain
-    ).covary[IO] ++ time.sleep_[IO](1.second) ++ clients).join(Int.MaxValue))
+    ).covary[IO] ++ Sch.sleep_[IO](1.second) ++ clients).join(Int.MaxValue))
     .take(count)
     .filter { case (idx, success) => success }
     .runLog.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
 
   }
 
-*/
+
   property("request-failed-to-route") = secure {
     // run up to count parallel requests with body, server shall fail each, nevertheless response shall be delivered.
     val count = 1
@@ -121,7 +122,7 @@ object HttpServerSpec extends Properties("HttpServer"){
     .runLog.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
   }
 
-  /*
+
 
   property("request-failed-body-send") = secure {
     // run up to count parallel requests with body, server shall fail each (when sending body), nevertheless response shall be delivered.
@@ -140,18 +141,18 @@ object HttpServerSpec extends Properties("HttpServer"){
       }
     }
 
-    (time.sleep_[IO](3.second) ++
+    (Sch.sleep_[IO](3.second) ++
     (Stream(
       http.server[IO](
         new InetSocketAddress("127.0.0.1", 9090)
         , sendFailure = (_, _, _) => Stream.empty
       )(failingResponse).drain
-    ).covary[IO] ++ time.sleep_[IO](1.second) ++ clients).join(Int.MaxValue))
+    ).covary[IO] ++ Sch.sleep_[IO](1.second) ++ clients).join(Int.MaxValue))
       .take(count)
       .filter { case (idx, success) => success }
       .runLog.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
   }
 
-*/
+
 
 }

@@ -28,8 +28,12 @@ object HttpServer {
     *                                     Request will fail, if the header won't be read within this timeout.
     * @param requestCodec                 Codec for Http Request Header
     * @param service                      Pipe that defines handling of each incoming request and produces a response
-    * @param requestFailure               A function to be evaluated when request failed while receiving the header
-    * @param sendFailure                  A function to be evaluated, when response has been sending result to client.
+    * @param requestFailure               A function to be evaluated when server failed to read the request header.
+    *                                     This may generate the default server response on unexpected failure.
+    *                                     This is also evaluated when the server failed to process the request itself (i.e. `service` did not handle the failure )
+    * @param sendFailure                  A function to be evaluated on failure to process the the response.
+    *                                     Request is not suplied if failure happened before request was constructed.
+    *
     */
   def apply[F[_]](
     maxConcurrent: Int = Int.MaxValue
@@ -47,7 +51,7 @@ object HttpServer {
     AG: AsynchronousChannelGroup
     , EC: ExecutionContext
     , F: Effect[F]
-  ): Stream[F,Unit] = {
+  ): Stream[F, Unit] = {
     import Stream._
     import internal._
     val (initial, readDuration) = requestHeaderReceiveTimeout match {
@@ -60,8 +64,13 @@ object HttpServer {
       eval(async.signalOf(initial)).flatMap { timeoutSignal =>
         readWithTimeout[F](socket, readDuration, timeoutSignal.get, receiveBufferSize)
         .through(HttpRequest.fromStream(maxHeaderSize, requestCodec))
-        .flatMap { read => eval_(timeoutSignal.set(false)) ++ emit(read) }
-        .attempt.flatMap { attempt =>
+        .flatMap { case (request, body) =>
+          eval_(timeoutSignal.set(false)) ++
+          service(request, body).take(1).onError { rsn => requestFailure(rsn).take(1) }
+          .map { resp => (request, resp) }
+        }
+        .attempt
+        .flatMap { attempt =>
           def send(request:Option[HttpRequestHeader]): Pipe[F, HttpResponse[F], Unit] = {
             _.flatMap { resp =>
               HttpResponse.toStream(resp, responseCodec).through(socket.writes()).onFinalize(socket.endOfOutput)
@@ -74,7 +83,7 @@ object HttpServer {
 
           attempt match {
             case Left(err) => requestFailure(err) through send(None)
-            case Right((request, body)) => service(request, body).take(1) through send(Some(request))
+            case Right((request, response)) => Stream.emit(response).covary[F] through send(Some(request))
           }
         }
         .drain
