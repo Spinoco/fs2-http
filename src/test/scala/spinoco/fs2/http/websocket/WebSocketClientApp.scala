@@ -15,9 +15,8 @@ object WebSocketClientApp extends App {
 
 
   def wspipe: Pipe[IO, Frame[String], Frame[String]] = { inbound =>
-    val output =  time.awakeEvery[IO](1.second).map { dur => println(s"SENT $dur"); Frame.Text(s" ECHO $dur") }.take(5)
-    inbound.take(5).map { in => println(("RECEIVED ", in)) }
-    .mergeDrainL(output)
+    val output =  Sch.awakeEvery[IO](1.second).map { dur => println(s"SENT $dur"); Frame.Text(s" ECHO $dur") }.take(5)
+    output concurrently inbound.take(5).map { in => println(("RECEIVED ", in)) }
   }
 
   implicit val codecString: Codec[String] = utf8

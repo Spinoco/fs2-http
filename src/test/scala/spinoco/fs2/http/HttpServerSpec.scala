@@ -29,7 +29,7 @@ object HttpServerSpec extends Properties("HttpServer"){
   }
 
   def failRouteService(request: HttpRequestHeader, body: Stream[IO,Byte]): Stream[IO,HttpResponse[IO]] = {
-    (Stream.suspend(Stream.emit(println("STARTING ROUTE"))).drain ++ Stream.fail(new Throwable("Booom!"))).onError(_ => Stream(println("HANDLE DONE")).drain)
+    Stream.fail(new Throwable("Booom!"))
   }
 
   def failingResponse(request: HttpRequestHeader, body: Stream[IO,Byte]): Stream[IO,HttpResponse[IO]] = Stream {
@@ -109,13 +109,13 @@ object HttpServerSpec extends Properties("HttpServer"){
       }}}
     }
 
-    (time.sleep_[IO](3.second) ++
+    (Sch.sleep_[IO](3.second) ++
     (Stream(
       http.server[IO](
         new InetSocketAddress("127.0.0.1", 9090)
-      , requestFailure = _ => { println("FAILURE HANDLER"); Stream(HttpResponse[IO](HttpStatusCode.BadRequest)).covary[IO] }
+      , requestFailure = _ => { Stream(HttpResponse[IO](HttpStatusCode.BadRequest)).covary[IO] }
       )(failRouteService).drain
-    ).covary[IO] ++ time.sleep_[IO](1.second) ++ clients).join(Int.MaxValue))
+    ).covary[IO] ++ Sch.sleep_[IO](1.second) ++ clients).join(Int.MaxValue))
     .take(count)
     .filter { case (idx, success) => success }
     .runLog.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)

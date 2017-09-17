@@ -231,7 +231,7 @@ object WebSocket {
     ):Pipe[F, Byte, Byte] = { source: Stream[F, Byte] => Stream.suspend {
       Stream.eval(async.unboundedQueue[F, PingPong]).flatMap { pingPongQ =>
         val metronome: Stream[F, Unit] = pingInterval match {
-          case fin: FiniteDuration => time.awakeEvery[F](fin).map { _ => () }
+          case fin: FiniteDuration => S.awakeEvery[F](fin).map { _ => () }
           case inf => Stream.empty
         }
         val control = controlStream[F](pingPongQ.dequeue, metronome, maxUnanswered = 3, flag = client2Server)
