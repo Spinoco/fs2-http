@@ -41,30 +41,38 @@ package object internal {
     }
   }
 
+
+
   /**
     * From the stream of bytes this extracts Http Header and body part.
     */
   def httpHeaderAndBody[F[_]](maxHeaderSize: Int): Pipe[F, Byte, (ByteVector, Stream[F, Byte])] = {
     def go(buff: ByteVector, in: Stream[F, Byte]): Pull[F, (ByteVector, Stream[F, Byte]), Unit] = {
       in.pull.unconsChunk flatMap {
-        case None => Pull.fail(new Throwable(s"Incomplete Header received (sz = ${buff.size}): ${buff.decodeUtf8}"))
+        case None =>
+          println("THIS FAILS NOW")
+          Pull.fail(new Throwable(s"Incomplete Header received (sz = ${buff.size}): ${buff.decodeUtf8}"))
         case Some((chunk, tl)) =>
+          println(s"XXXX $chunk : ${new String(chunk.toArray)}")
           val bv = spinoco.fs2.http.util.chunk2ByteVector(chunk)
           val all = buff ++ bv
           val idx = all.indexOfSlice(`\r\n\r\n`)
+          println(s"IDX: $idx")
           if (idx < 0) {
             if (all.size > maxHeaderSize) Pull.fail(new Throwable(s"Size of the header exceeded the limit of $maxHeaderSize (${all.size})"))
             else go(all, tl)
           }
           else {
             val (h, t) = all.splitAt(idx)
+            println(s"H: $h, t: $t")
             if (h.size > maxHeaderSize)  Pull.fail(new Throwable(s"Size of the header exceeded the limit of $maxHeaderSize (${all.size})"))
-            else  Pull.output1((h, Stream.chunk(ByteVectorChunk(t.drop(`\r\n\r\n`.size))) ++ tl))
+            else  Pull.output1((h, Stream.chunk(ByteVectorChunk(t.drop(`\r\n\r\n`.size))) ++ tl.append(Stream.suspend(Stream(println("DONE"))).drain)))
+
           }
       }
     }
 
-    go(ByteVector.empty, _) stream
+    src => Stream.suspend(Stream(println("STARTING"))).drain ++ (go(ByteVector.empty, src) stream)
   }
 
 

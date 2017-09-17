@@ -120,7 +120,7 @@ package object util {
       case bv: ByteVectorChunk => bv.toByteVector
       case other =>
         val bs = other.toBytes
-        ByteVector(bs.values, 0, bs.size)
+        ByteVector(bs.values, bs.offset, bs.size)
     }
   }
 

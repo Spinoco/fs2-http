@@ -51,19 +51,16 @@ object SSEEncoding {
 
     // drops initial Byte Order Mark, if present
     def dropInitial(buff:ByteVector): Pipe[F, Byte, Byte] = {
-      def go(in: Stream[F, Byte]) : Pull[F, Byte, Unit] = {
-        in.pull.unconsChunk.flatMap {
-          case None => Pull.fail(new Throwable("SSE Socket did not contain any data"))
-          case Some((chunk, next)) =>
-            val all = buff ++ chunk2ByteVector(chunk)
-            if (all.size < 2) go(next)
-            else {
-              if (all.startsWith(StartBom)) Pull.output(ByteVectorChunk(all.drop(2))) >> go(next)
-              else Pull.output(ByteVectorChunk(all)) >> go(next)
-            }
-        }
-      }
-      go(_).stream
+      _.pull.unconsChunk.flatMap {
+        case None => Pull.fail(new Throwable("SSE Socket did not contain any data"))
+        case Some((chunk, next)) =>
+          val all = buff ++ chunk2ByteVector(chunk)
+          if (all.size < 2) (next through dropInitial(all)).pull.echo
+          else {
+            if (all.startsWith(StartBom)) Pull.output(ByteVectorChunk(all.drop(2))) >> next.pull.echo
+            else Pull.output(ByteVectorChunk(all)) >> next.pull.echo
+          }
+      }.stream
     }
 
     // makes lines out of incoming bytes. Lines are utf-8 decoded
@@ -77,19 +74,20 @@ object SSEEncoding {
     // outgoing vectors are guaranteed tobe nonEmpty
     // note that this splits by empty lines.
     // the last event is emitted only if it is terminated by empty line
-    def mkEvents: Pipe[F, String, Seq[String]] = { src =>
-      def go(buff: Vector[String], in: Stream[F, String]): Pull[F, Seq[String], Unit] = {
-        in.pull.unconsChunk.flatMap {
-          case None => Pull.output1(buff)
+    def mkEvents: Pipe[F, String, Seq[String]] = {
+      def go(buff: Vector[String]): Stream[F, String] => Pull[F, Seq[String], Unit] = {
+        _.pull.unconsChunk flatMap {
+          case None => Pull.done
+
           case Some((lines, tl)) =>
-            val linesList = lines.toList
-            val event = linesList.takeWhile(_.nonEmpty)
-            if (event.size == linesList.size) go(buff, tl)
-            else Pull.output1(event) >> go(Vector.empty, Stream.emits(linesList.drop(event.size + 1)) ++ tl)
+            val event = lines.toList.takeWhile(_.nonEmpty)
+            // size of event lines is NOT equal with size of lines only when there is nonEmpty line
+            if (event.size == lines.size) go(buff ++ event)(tl)
+            else Pull.output1(buff ++ event) >> go(Vector.empty)(Stream.chunk(lines.strict.drop(event.size + 1)) ++ tl)
         }
       }
 
-      go(Vector.empty, src filter(! _.startsWith(":"))).stream
+      src => go(Vector.empty)(src.filter(! _.startsWith(":"))).stream
     }
 
 

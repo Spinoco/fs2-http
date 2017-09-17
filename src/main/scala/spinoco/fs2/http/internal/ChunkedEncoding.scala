@@ -61,7 +61,8 @@ object ChunkedEncoding {
     */
   def encode[F[_]]:Pipe[F,Byte,Byte] = {
     def encodeChunk(bv:ByteVector):Chunk[Byte] = {
-      ByteVectorChunk(ByteVector.view(bv.size.toHexString.toUpperCase.getBytes) ++ `\r\n` ++ bv ++ `\r\n` )
+      if (bv.isEmpty) Chunk.empty
+      else ByteVectorChunk(ByteVector.view(bv.size.toHexString.toUpperCase.getBytes) ++ `\r\n` ++ bv ++ `\r\n` )
     }
     _.mapChunks { ch => encodeChunk(chunk2ByteVector(ch)) } ++ Stream.chunk(lastChunk)
   }
