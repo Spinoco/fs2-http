@@ -4,6 +4,7 @@ import java.net.InetSocketAddress
 import java.nio.channels.AsynchronousChannelGroup
 
 import cats.effect.Effect
+import cats.syntax.all._
 import fs2._
 import scodec.Codec
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
@@ -70,20 +71,18 @@ object HttpServer {
           .map { resp => (request, resp) }
         }
         .attempt
-        .flatMap { attempt =>
-          def send(request:Option[HttpRequestHeader]): Pipe[F, HttpResponse[F], Unit] = {
-            _.flatMap { resp =>
-              HttpResponse.toStream(resp, responseCodec).through(socket.writes()).onFinalize(socket.endOfOutput)
-              .attempt.flatMap {
-                case Left(err) => sendFailure(request, resp, err)
-                case _ => Stream.empty
-              }
+        .evalMap { attempt =>
+
+          def send(request:Option[HttpRequestHeader], resp: HttpResponse[F]): F[Unit] = {
+            HttpResponse.toStream(resp, responseCodec).through(socket.writes()).onFinalize(socket.endOfOutput).run.attempt flatMap {
+              case Left(err) => sendFailure(request, resp, err).run
+              case Right(()) => F.pure(())
             }
           }
 
           attempt match {
-            case Left(err) => requestFailure(err) through send(None)
-            case Right((request, response)) => Stream.emit(response).covary[F] through send(Some(request))
+            case Right((request, response)) => send(Some(request), response)
+            case Left(err) => requestFailure(err) evalMap { send(None, _) } run
           }
         }
         .drain
