@@ -40,7 +40,6 @@ lazy val commonSettings = Seq(
    licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
    initialCommands := s"""
    import fs2._
-   import fs2.util.syntax._
    import spinoco.fs2.http
    import http.Resources._
    import spinoco.protocol.http.header._
