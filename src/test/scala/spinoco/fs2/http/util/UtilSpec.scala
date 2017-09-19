@@ -12,39 +12,40 @@ import spinoco.fs2.http.util
 
 
 object UtilSpec extends Properties("util"){
+  val charset = java.nio.charset.StandardCharsets.UTF_8
 
   case class EncodingSample(chunkSize:Int, text:String, alphabet: Base64Alphabet)
 
   implicit val encodingTestInstance : Arbitrary[EncodingSample] = Arbitrary {
     for {
       s <- the[Arbitrary[String]].arbitrary
-      chunkSize <- Gen.choose(1,s.length max 1)
+      chunkSize <- Gen.choose(1,s.getBytes(charset).length max 1)
       alphabet <- Gen.oneOf(Seq(Alphabets.Base64Url, Alphabets.Base64))
     } yield EncodingSample(chunkSize, s, alphabet)
   }
 
   property("encodes.base64") = forAll { sample: EncodingSample =>
-    Stream.chunk[Byte](Chunk.bytes(sample.text.getBytes)).chunkLimit(sample.chunkSize).flatMap(Stream.chunk[Byte])
+    Stream.chunk[Byte](Chunk.bytes(sample.text.getBytes(charset))).chunkLimit(sample.chunkSize).flatMap(Stream.chunk[Byte])
     .covary[IO]
     .through(util.encodeBase64Raw(sample.alphabet))
     .chunks
     .fold(ByteVector.empty){ case (acc, n) => acc ++ chunk2ByteVector(n)}
-    .map(_.decodeUtf8)
+    .map(_.decodeString(charset))
     .runLog.unsafeRunSync() ?= Vector(
-      Right(ByteVector.view(sample.text.getBytes).toBase64(sample.alphabet))
+      Right(ByteVector.view(sample.text.getBytes(charset)).toBase64(sample.alphabet))
     )
   }
 
 
   property("decodes.base64") = forAll { sample: EncodingSample =>
-    val encoded = ByteVector.view(sample.text.getBytes).toBase64(sample.alphabet)
-    Stream.chunk[Byte](Chunk.bytes(encoded.getBytes))
+    val encoded = ByteVector.view(sample.text.getBytes(charset)).toBase64(sample.alphabet)
+    Stream.chunk[Byte](Chunk.bytes(encoded.getBytes(charset)))
     .covary[IO]
     .chunkLimit(sample.chunkSize).flatMap(Stream.chunk[Byte])
     .through(util.decodeBase64Raw(sample.alphabet))
     .chunks
     .fold(ByteVector.empty){ case (acc, n) => acc ++ chunk2ByteVector(n)}
-    .map(_.decodeUtf8)
+    .map(_.decodeString(charset))
     .runLog.unsafeRunSync() ?= Vector(
       Right(sample.text)
     )
@@ -52,7 +53,7 @@ object UtilSpec extends Properties("util"){
 
   property("encodes.decodes.base64") =  forAll { sample: EncodingSample =>
     val r =
-      Stream.chunk[Byte](Chunk.bytes(sample.text.getBytes)).covary[IO].chunkLimit(sample.chunkSize).flatMap(Stream.chunk[Byte])
+      Stream.chunk[Byte](Chunk.bytes(sample.text.getBytes(charset))).covary[IO].chunkLimit(sample.chunkSize).flatMap(Stream.chunk[Byte])
       .through(util.encodeBase64Raw(sample.alphabet))
       .through(util.decodeBase64Raw(sample.alphabet))
       .chunks
@@ -60,9 +61,7 @@ object UtilSpec extends Properties("util"){
       .runLog.unsafeRunSync()
 
 
-
-    r ?= Vector(ByteVector.view(sample.text.getBytes))
-
+    r ?= Vector(ByteVector.view(sample.text.getBytes(charset)))
   }
 
 

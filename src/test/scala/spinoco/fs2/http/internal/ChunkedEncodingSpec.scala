@@ -8,16 +8,17 @@ import scodec.bits.ByteVector
 import spinoco.fs2.http.util.chunk2ByteVector
 
 object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
+  val charset = java.nio.charset.StandardCharsets.UTF_8
 
   property("encode-decode") = forAll { strings: List[String] =>
-    val in = strings.foldLeft(Stream.empty.covaryAll[IO, Byte]) { case(s,n) => s ++ Stream.chunk(Chunk.bytes(n.getBytes)) }
+    val in = strings.foldLeft(Stream.empty.covaryAll[IO, Byte]) { case(s,n) => s ++ Stream.chunk(Chunk.bytes(n.getBytes(charset))) }
 
 
     (in through ChunkedEncoding.encode through ChunkedEncoding.decode(1024))
     .chunks
     .runLog
     .map(_.foldLeft(ByteVector.empty){ case (bv, n) => bv ++ chunk2ByteVector(n) })
-    .map(_.decodeUtf8)
+    .map(_.decodeString(charset))
     .unsafeRunSync() ?= Right(
       strings.mkString
     )
@@ -38,12 +39,12 @@ object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
   property("encoded-wiki-example") = secure {
 
 
-    (Stream.chunk[Byte](Chunk.bytes(wikiExample.getBytes)) through ChunkedEncoding.decode(1024))
+    (Stream.chunk[Byte](Chunk.bytes(wikiExample.getBytes(charset))) through ChunkedEncoding.decode(1024))
     .covary[IO]
     .chunks
     .runLog
     .map(_.foldLeft(ByteVector.empty){ case (bv, n) => bv ++ chunk2ByteVector(n) })
-    .map(_.decodeUtf8)
+    .map(_.decodeString(charset))
     .unsafeRunSync() ?= Right(
     "Wikipedia in\r\n\r\nchunks."
     )
@@ -57,13 +58,13 @@ object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
         , "pedia"
         , " in\r\n\r\nchunks."
       )
-    ).flatMap(s => Stream.chunk[Byte](Chunk.bytes(s.getBytes)))
+    ).flatMap(s => Stream.chunk[Byte](Chunk.bytes(s.getBytes(charset))))
 
     (chunks through ChunkedEncoding.encode)
       .chunks
       .runLog
       .map(_.foldLeft(ByteVector.empty){ case (bv, n) => bv ++ chunk2ByteVector(n) })
-      .map(_.decodeUtf8)
+      .map(_.decodeString(charset))
       .unsafeRunSync() ?= Right(wikiExample)
   }
 
