@@ -183,7 +183,11 @@ The meaning of the individual routes is as follows:
 - example3 : will match path "/example3" and will consume body to produce `Foo` class. Map is supplied with Foo :: HttpMethod.Value :: HNil 
 - example4 : will match path "/example4" and will match if header `Content-Type` is present supplying that header to map. 
 - example5 : will match path "/example5?count=1&query=sql_query" supplying 1 :: "sql:query" :: HNil to map
-- example6 : will match path "/example6" and then evaluating `someEffect` where the result of someEffect will be passed to map  
+- example6 : will match path "/example6" and then evaluating `someEffect` where the result of someEffect will be passed to map 
+
+### Other documentation and helpful links
+
+- [Using custom headers](https://github.com/Spinoco/fs2-http/blob/master/doc/custom_codec.md)
 
 ### Comparing to http://http4s.org/
 
