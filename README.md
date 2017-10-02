@@ -29,8 +29,14 @@ functional library, such as scalaz or cats.
 
 Add this to your sbt build file : 
 
+for fs2 0.10.x series: 
 ```
-libraryDependencies += "com.spinoco" %% "fs2-http" % "0.1.7" 
+libraryDependencies += "com.spinoco" %% "fs2-http" % "0.2.0-RC1" 
+```
+
+for fs2 0.9.x series: 
+```
+libraryDependencies += "com.spinoco" %% "fs2-http" % "0.1.8" 
 ```
 
 ### Dependencies
@@ -38,9 +44,7 @@ libraryDependencies += "com.spinoco" %% "fs2-http" % "0.1.7"
 version  |    scala  |   fs2  |  scodec | shapeless      
 ---------|-----------|--------|---------|-----------
 0.2.0-RC1| 2.11, 2.12| 0.10-M6| 1.10.3  | 2.3.3
-0.1.7    | 2.11, 2.12| 0.9.5  | 1.10.3  | 2.3.2
-0.1.6    | 2.11, 2.12| 0.9.4  | 1.10.3  | 2.3.2 
-0.1.3    | 2.11, 2.12| 0.9.2  | 1.10.3  | 2.3.2 
+0.1.8    | 2.11, 2.12| 0.9.5  | 1.10.3  | 2.3.2
 
 
 ## Usage
