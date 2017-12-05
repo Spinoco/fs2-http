@@ -9,9 +9,9 @@ import spinoco.fs2.http.body.{BodyDecoder, BodyEncoder, StreamBodyEncoder}
 import spinoco.fs2.interop.scodec.ByteVectorChunk
 import spinoco.protocol.http._
 import header._
-import header.value.{ContentType, MediaType}
 import scodec.bits.ByteVector
 import spinoco.fs2.http.sse.{SSEEncoder, SSEEncoding}
+import spinoco.protocol.mime.{ContentType, MediaType}
 
 
 /** common request/response methods **/
@@ -281,7 +281,7 @@ final case class HttpResponse[F[_]](
   def sseBody[A](in: Stream[F, A])(implicit E: SSEEncoder[A]): Self =
      self
      .updateBody(in through SSEEncoding.encodeA[F, A])
-     .updateHeaders(withHeaders(internal.swapHeader(`Content-Type`(ContentType(MediaType.`text/event-stream`, None, None)))))
+     .updateHeaders(withHeaders(internal.swapHeader(`Content-Type`(ContentType.TextContent(MediaType.`text/event-stream`, None)))))
 }
 
 

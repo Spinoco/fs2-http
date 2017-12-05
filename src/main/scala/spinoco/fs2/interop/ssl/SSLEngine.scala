@@ -178,8 +178,65 @@ object SSLEngine {
       engine: jns.SSLEngine
       , bytes: Chunk[Byte]
       , buffers: Ref[F, (ByteBuffer, ByteBuffer)]
-    )(implicit F: Async[F], S: Strategy): F[Result] =
-      wrapUnwrap(engine,bytes,buffers)(EngineOpName.WRAP)
+    )(implicit F: Async[F], S: Strategy): F[Result] = {
+      import  SSLEngineResult.Status._
+      import SSLEngineResult.HandshakeStatus._
+
+      def go(input: ByteBuffer, output: ByteBuffer): F[Result] = {
+        lazy val done = complete(buffers, input, output) _
+
+        F. delay { engine.wrap(input, output) } flatMap { result =>
+          result.getStatus match {
+            case OK =>
+              result.getHandshakeStatus match {
+                case NOT_HANDSHAKING =>
+                  // at wrap operation this indicates all data were processed and lets get the result
+                  done(None)
+
+                case NEED_TASK =>
+                  // this needs to run any outstanding async  tasks and repeat command with last status of bytes.
+                  F.flatMap(runTasks(engine))(_ => go(input, output))
+
+                case NEED_UNWRAP =>
+                  done(Some(MoreData.UNWRAP))
+
+                case NEED_WRAP =>
+                  done(Some(MoreData.WRAP))
+
+                case FINISHED =>
+                  done(None)
+              }
+
+            case BUFFER_OVERFLOW =>
+              // indicates we need to consume data in buffer.
+              // that leads to requirement to return and indicate this as the next op
+              done(Some(MoreData.WRAP))
+
+            case BUFFER_UNDERFLOW =>
+              F.fail(new Throwable("BUFFER_UNDERFLOW at wrap not possible"))
+
+            case CLOSED =>
+              // this may indicate end of stream, but only if there were no data produced
+              // for the wrap, this likely won't be ever the case
+              done(None) map { r =>
+                if (r.output.isEmpty) r.copy(closed = true)
+                else r
+              }
+
+          }
+
+
+        }
+      }
+
+      buffers.get.flatMap { case (origInput, origOutput) =>
+        go(fillBuffer(bytes, origInput), origOutput)
+      }
+
+
+    }
+
+
 
     /**
       * Perform `un-wrap` operation on engine.
@@ -205,84 +262,93 @@ object SSLEngine {
       engine: jns.SSLEngine
       , bytes: Chunk[Byte]
       , buffers: Ref[F, (ByteBuffer, ByteBuffer)]
-    )(implicit F: Async[F], S: Strategy): F[Result] =
-      wrapUnwrap(engine,bytes,buffers)(EngineOpName.UNWRAP)
-
-
-    /** helper to perform wrap/unwrap **/
-    def wrapUnwrap[F[_]](
-    engine: jns.SSLEngine
-    , bytes: Chunk[Byte]
-    , buffers: Ref[F, (ByteBuffer, ByteBuffer)]
-    )(
-      op: EngineOpName.Value
     )(implicit F: Async[F], S: Strategy): F[Result] = {
       import  SSLEngineResult.Status._
       import SSLEngineResult.HandshakeStatus._
 
-      buffers.get.flatMap { case (origInput, origOutput) =>
+      def go(input: ByteBuffer, output: ByteBuffer): F[Result] = {
+        lazy val done = complete(buffers, input, output) _
 
-        val in = fillBuffer(bytes, origInput)
-        def go(inBuffer: ByteBuffer, outBuffer: ByteBuffer): F[Result] = {
-
-          def release(hs: Option[MoreData.Value]):F[Result] = F.suspend {
-            // adjust buffers to have them ready for next wrap/unwrap
-            // output buffer is always drained,
-            // from input buffer we remove consumed bytes and make it ready for next write
-            inBuffer.compact()
-            val out = buffer2Bytes(outBuffer)
-            val result = Result(out, hs, closed = false)
-
-            if (origInput.eq(inBuffer) && origOutput.eq(outBuffer)) F.pure(result)
-            else buffers.modify(_ => inBuffer -> outBuffer).as(result)
-          }
-
-          val result = op match {
-            case EngineOpName.UNWRAP => engine.unwrap(inBuffer, outBuffer)
-            case EngineOpName.WRAP => engine.wrap(inBuffer, outBuffer)
-          }
-
-
+        F. delay { engine.unwrap(input, output) } flatMap { result =>
           result.getStatus match {
+            case OK =>
+              result.getHandshakeStatus match {
+                case NOT_HANDSHAKING =>
+                  // this indicates the we still may have to proceed some data from the input buffer.
+                  // just recurse until we get BUFFER_UNDERFLOW
+                  go(input, output)
+
+                case NEED_TASK =>
+                  // this needs to run any outstanding async  tasks and repeat command with last status of bytes.
+                  F.flatMap(runTasks(engine))(_ => go(input, output))
+
+                case NEED_UNWRAP =>
+                  done(Some(MoreData.UNWRAP))
+
+                case NEED_WRAP =>
+                  done(Some(MoreData.WRAP))
+
+                case FINISHED =>
+                  done(None)
+              }
+
             case BUFFER_OVERFLOW =>
               // indicates we need to consume data in buffer.
               // that leads to requirement to return and indicate this as the next op
-              val out = op match {
-                case EngineOpName.UNWRAP => MoreData.UNWRAP
-                case EngineOpName.WRAP => MoreData.WRAP
-              }
-              release(Some(out))
+              done(Some(MoreData.UNWRAP))
 
             case BUFFER_UNDERFLOW =>
-              // available only at unwrap, indicates we need more data before unwrap may take a place
-              release(Some(MoreData.RECEIVE_UNWRAP))
-
-            case OK =>
-              result.getHandshakeStatus match {
-                case NEED_TASK =>
-                  // run task and repeat command
-                  F.flatMap(runTasks(engine))(_ => go(inBuffer, outBuffer))
-
-                case NEED_WRAP =>
-                  // finalize and signal need to wrap
-                  release(Some(MoreData.WRAP))
-
-                case NEED_UNWRAP =>
-                  // finalize and signal need to unwrap
-                  release(Some(MoreData.UNWRAP))
-
-                case NOT_HANDSHAKING | FINISHED =>
-                  release(None)
+              // we don't have enough data available to perform UNWRAP.
+              // if we didn't read any data. this will ask to read more data from remote party,
+              // otherwise this just complete the attempt
+              done(None) map { r =>
+                if (r.output.isEmpty) r.copy(handshake = Some(MoreData.RECEIVE_UNWRAP))
+                else r
               }
 
             case CLOSED =>
-              release(None).map { _.copy(closed = true) }
+              // this may indicate end of stream, but only if there were no data produced
+              done(None) map { r =>
+                if (r.output.isEmpty) r.copy(closed = true)
+                else r
+              }
           }
         }
-
-        go(in, origOutput)
       }
 
+      buffers.get.flatMap { case (origInput, origOutput) =>
+        go(fillBuffer(bytes, origInput), origOutput)
+      }
+    }
+
+
+    /**
+      * Completes wrap/unwrap operation to extract results and modify the output buffers.
+      * @param buffers    Reference to active buffers that are used for wrap/unwrap. Each operation has different set of buffers.
+      * @param next       Next action to be returned in result.
+      * @param input      input buffer after wrap/unwrap
+      * @param output     output buffer after wrap/unwrap
+      * @tparam F
+      * @return
+      */
+    def complete[F[_]](
+      buffers: Ref[F, (ByteBuffer, ByteBuffer)]
+      , input: ByteBuffer
+      , output:ByteBuffer
+    )(
+      next: Option[MoreData.Value]
+    )(implicit F: Functor[F]): F[Result] = {
+      // complete with compacting input buffer to be ready for eventually reading in future.
+      // from the output buffer take whatever was committed to it, and then
+      // put them back (both input/output) in state, so we don't have to resize them again and
+      // they are properly reused.
+      // also note this will always make defensive copy of output chunk of bytes.
+
+      input.compact()
+
+      buffers.modify(_ => (input, output)) as {
+        Result(buffer2Bytes(output), next, closed = false)
+      }
     }
 
     /**

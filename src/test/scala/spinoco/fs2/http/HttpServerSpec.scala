@@ -8,8 +8,8 @@ import org.scalacheck.Prop._
 import spinoco.fs2.http
 import spinoco.fs2.http.body.BodyEncoder
 import spinoco.protocol.http.header.{`Content-Length`, `Content-Type`}
-import spinoco.protocol.http.header.value.{ContentType, MediaType}
 import spinoco.protocol.http.{HttpRequestHeader, HttpStatusCode, Uri}
+import spinoco.protocol.mime.{ContentType, MediaType}
 
 import scala.concurrent.duration._
 
@@ -19,7 +19,7 @@ object HttpServerSpec extends Properties("HttpServer"){
   def echoService(request: HttpRequestHeader, body: Stream[Task,Byte]): Stream[Task,HttpResponse[Task]] = {
     if (request.path != Uri.Path / "echo") Stream.emit(HttpResponse(HttpStatusCode.Ok).withUtf8Body("Hello World"))
     else {
-      val ct =  request.headers.collectFirst { case `Content-Type`(ct0) => ct0 }.getOrElse(ContentType(MediaType.`application/octet-stream`, None, None))
+      val ct =  request.headers.collectFirst { case `Content-Type`(ct0) => ct0 }.getOrElse(ContentType.BinaryContent(MediaType.`application/octet-stream`))
       val size = request.headers.collectFirst { case `Content-Length`(sz) => sz }.getOrElse(0l)
       val ok = HttpResponse(HttpStatusCode.Ok).chunkedEncoding.withContentType(ct).withBodySize(size)
 

@@ -207,9 +207,7 @@ object SSLSocket {
 
                     } else {
                       if (result.handshake.isEmpty)  readSemaphore.decrement.as(Some(result.output))
-                      else {
-                        performHandshake(socket, sslEngine, statusRef, timeout, writeSemaphore, readSemaphore) *> go
-                      }
+                      else performHandshake(socket, sslEngine, statusRef, timeout, writeSemaphore, readSemaphore) *> go
                     }
                   }
                 }

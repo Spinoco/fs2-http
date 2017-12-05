@@ -5,7 +5,7 @@ import fs2.util.Catchable
 import scodec.Attempt.{Failure, Successful}
 import scodec.bits.ByteVector
 import spinoco.fs2.interop.scodec.ByteVectorChunk
-import spinoco.protocol.http.header.value.{ContentType, HttpCharset, MediaType}
+import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 
 
 trait StreamBodyEncoder[F[_], A] {
@@ -38,11 +38,11 @@ object StreamBodyEncoder {
 
   /** encoder that encodes bytes as they come in, with `application/octet-stream` content type **/
   def byteEncoder[F[_]] : StreamBodyEncoder[F, Byte] =
-    StreamBodyEncoder(ContentType(MediaType.`application/octet-stream`, None, None)) { identity }
+    StreamBodyEncoder(ContentType.BinaryContent(MediaType.`application/octet-stream`)) { identity }
 
   /** encoder that encodes ByteVector as they come in, with `application/octet-stream` content type **/
   def byteVectorEncoder[F[_]] : StreamBodyEncoder[F, ByteVector] =
-    StreamBodyEncoder(ContentType(MediaType.`application/octet-stream`, None, None)) { _.flatMap { bv => Stream.chunk(ByteVectorChunk(bv)) } }
+    StreamBodyEncoder(ContentType.BinaryContent(MediaType.`application/octet-stream`)) { _.flatMap { bv => Stream.chunk(ByteVectorChunk(bv)) } }
 
   /** encoder that encodes utf8 string, with `text/plain` utf8 content type **/
   def utf8StringEncoder[F[_]](implicit F: Catchable[F]) : StreamBodyEncoder[F, String] =
@@ -51,7 +51,7 @@ object StreamBodyEncoder {
         case Right(bv) => F.pure(bv)
         case Left(err) => F.fail[ByteVector](new Throwable(s"Failed to encode string: $err ($s) "))
       }
-    } withContentType ContentType(MediaType.`text/plain`, Some(HttpCharset.`UTF-8`), None)
+    } withContentType ContentType.TextContent(MediaType.`text/plain`, Some(MIMECharset.`UTF-8`))
 
   /** a convenience wrapper to convert body encoder to StreamBodyEncoder **/
   def fromBodyEncoder[F[_], A](implicit E: BodyEncoder[A]):StreamBodyEncoder[F, A] =

@@ -15,10 +15,11 @@ import spinoco.fs2.interop.scodec.ByteVectorChunk
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 import spinoco.protocol.http.header._
 import spinoco.protocol.http._
-import spinoco.protocol.http.header.value.{ContentType, HttpCharset, MediaType, ProductDescription}
+import spinoco.protocol.http.header.value.ProductDescription
 import spinoco.protocol.websocket.{OpCode, WebSocketFrame}
 import spinoco.protocol.websocket.codec.WebSocketFrameCodec
 import spinoco.fs2.http.util.chunk2ByteVector
+import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 
 import scala.concurrent.duration._
 import scala.util.Random
@@ -149,7 +150,7 @@ object WebSocket {
           status = HttpStatusCode.BadRequest
           , reason = HttpStatusCode.BadRequest.label
           , headers = List(
-             `Content-Type`(ContentType(MediaType.`text/plain`, Some(HttpCharset.`UTF-8`), None))
+             `Content-Type`(ContentType.TextContent(MediaType.`text/plain`, Some(MIMECharset.`UTF-8`)))
           )
         )
         , body = Stream.chunk(ByteVectorChunk(ByteVector.view(s.getBytes)))

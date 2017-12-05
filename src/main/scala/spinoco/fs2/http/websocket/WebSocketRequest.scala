@@ -1,5 +1,6 @@
 package spinoco.fs2.http.websocket
 
+import spinoco.protocol.http.Uri.QueryParameter
 import spinoco.protocol.http.header.Host
 import spinoco.protocol.http.{HostPort, HttpMethod, HttpRequestHeader, Uri}
 
@@ -30,7 +31,7 @@ object WebSocketRequest {
         , headers = List(
           Host(hostPort)
         )
-        , query = Uri.Query(params.toList)
+        , query = Uri.Query(params.toList.map(QueryParameter.single _ tupled))
       )
       , secure = false
     )

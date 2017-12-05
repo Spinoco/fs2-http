@@ -11,8 +11,8 @@ import spinoco.fs2.http.internal.{addressForRequest, liftToSecure, readWithTimeo
 import spinoco.fs2.http.sse.{SSEDecoder, SSEEncoding}
 import spinoco.fs2.http.websocket.{Frame, WebSocket, WebSocketRequest}
 import spinoco.protocol.http.header._
-import spinoco.protocol.http.header.value.MediaType
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
+import spinoco.protocol.mime.MediaType
 
 import scala.concurrent.duration._
 
