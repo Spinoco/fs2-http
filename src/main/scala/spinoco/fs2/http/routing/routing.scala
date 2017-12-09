@@ -101,10 +101,7 @@ package object routing {
     */
   def param[A](key: String)(implicit decoder: StringDecoder[A]) : Matcher[Nothing,A] =
     Match[Nothing, A] { (header, _) =>
-      header.query.params.collectFirst( Function.unlift { case (k, v) =>
-        if (k == key) decoder.decode(v)
-        else None
-      }) match {
+      header.query.valueOf(key).flatMap(decoder.decode) match {
         case None => BadRequest
         case Some(a) => Success(a)
       }

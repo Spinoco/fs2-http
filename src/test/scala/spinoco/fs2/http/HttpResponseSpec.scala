@@ -9,7 +9,7 @@ import spinoco.protocol.http.header._
 import spinoco.protocol.http.codec.HttpResponseHeaderCodec
 import spinoco.protocol.http.{HttpResponseHeader, HttpStatusCode}
 import spinoco.fs2.http.util.chunk2ByteVector
-import spinoco.protocol.http.header.value.{ContentType, HttpCharset, MediaType}
+import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 
 
 object HttpResponseSpec extends Properties("HttpResponse") {
@@ -54,7 +54,7 @@ object HttpResponseSpec extends Properties("HttpResponse") {
         status = HttpStatusCode.Ok
         , reason = "OK"
         , headers = List(
-          `Content-Type`(ContentType(MediaType.`text/plain`, Some(HttpCharset.`UTF-8`), None))
+          `Content-Type`(ContentType.TextContent(MediaType.`text/plain`, Some(MIMECharset.`UTF-8`)))
           , `Content-Length`(11)
         )
       ) -> Attempt.Successful("Hello World")

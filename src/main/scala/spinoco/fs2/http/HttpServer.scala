@@ -67,7 +67,7 @@ object HttpServer {
         .through(HttpRequest.fromStream(maxHeaderSize, requestCodec))
         .flatMap { case (request, body) =>
           eval_(timeoutSignal.set(false)) ++
-          service(request, body).take(1).onError { rsn => requestFailure(rsn).take(1) }
+          service(request, body).take(1).handleErrorWith { rsn => requestFailure(rsn).take(1) }
           .map { resp => (request, resp) }
         }
         .attempt

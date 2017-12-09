@@ -16,7 +16,8 @@ import fs2.interop.scodec.ByteVectorChunk
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 import spinoco.protocol.http.header._
 import spinoco.protocol.http._
-import spinoco.protocol.http.header.value.{ContentType, HttpCharset, MediaType, ProductDescription}
+import spinoco.protocol.http.header.value.ProductDescription
+import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 import spinoco.protocol.websocket.{OpCode, WebSocketFrame}
 import spinoco.protocol.websocket.codec.WebSocketFrameCodec
 import spinoco.fs2.http.util.chunk2ByteVector
@@ -113,12 +114,12 @@ object WebSocket {
     .flatMap { socket =>
       val (header, fingerprint) = impl.createRequestHeaders(request.header)
       requestCodec.encode(header) match {
-        case Failure(err) => Stream.fail(new Throwable(s"Failed to encode websocket request: $err"))
+        case Failure(err) => Stream.raiseError(new Throwable(s"Failed to encode websocket request: $err"))
         case Successful(headerBits) =>
           eval(socket.write(ByteVectorChunk(headerBits.bytes ++ `\r\n\r\n`))).flatMap { _ =>
             socket.reads(receiveBufferSize) through httpHeaderAndBody(maxHeaderSize) flatMap { case (respHeaderBytes, body) =>
               responseCodec.decodeValue(respHeaderBytes.bits) match {
-                case Failure(err) => fail(new Throwable(s"Failed to decode websocket response: $err"))
+                case Failure(err) => raiseError(new Throwable(s"Failed to decode websocket response: $err"))
                 case Successful(responseHeader) =>
                   impl.validateResponse[F](header, responseHeader, fingerprint).flatMap {
                     case Some(resp) => emit(Some(resp))
@@ -153,7 +154,7 @@ object WebSocket {
           status = HttpStatusCode.BadRequest
           , reason = HttpStatusCode.BadRequest.label
           , headers = List(
-             `Content-Type`(ContentType(MediaType.`text/plain`, Some(HttpCharset.`UTF-8`), None))
+             `Content-Type`(ContentType.TextContent(MediaType.`text/plain`, Some(MIMECharset.`UTF-8`)))
           )
         )
         , body = Stream.chunk(ByteVectorChunk(ByteVector.view(s.getBytes)))
@@ -300,7 +301,7 @@ object WebSocket {
         }
       }
       def go(buff: ByteVector): Stream[F, Byte] => Pull[F, WebSocketFrame, Unit] = { h0 =>
-        if (buff.size > maxFrameSize) Pull.fail(new Throwable(s"Size of websocket frame exceeded max size: $maxFrameSize, current: ${buff.size}, $buff"))
+        if (buff.size > maxFrameSize) Pull.raiseError(new Throwable(s"Size of websocket frame exceeded max size: $maxFrameSize, current: ${buff.size}, $buff"))
         else {
           h0.pull.unconsChunk flatMap {
             case None => Pull.done  // todo: is ok to silently ignore buffer remainder ?
@@ -312,7 +313,7 @@ object WebSocket {
                 case (rawFrames, dataTail) =>
                   val pulls = rawFrames.map { data =>
                     WebSocketFrameCodec.codec.decodeValue(data.bits) match {
-                      case Failure(err) => Pull.fail(new Throwable(s"Failed to decode websocket frame: $err, $data"))
+                      case Failure(err) => Pull.raiseError(new Throwable(s"Failed to decode websocket frame: $err, $data"))
                       case Successful(wsFrame) => Pull.output1(wsFrame)
                     }
                   }
@@ -340,7 +341,7 @@ object WebSocket {
       def decode(from: Vector[WebSocketFrame]):Pull[F, Frame[A], A] = {
         val bs = from.map(_.payload).reduce(_ ++ _)
         R.decodeValue(bs.bits) match {
-          case Failure(err) => Pull.fail(new Throwable(s"Failed to decode value: $err, content: $bs"))
+          case Failure(err) => Pull.raiseError(new Throwable(s"Failed to decode value: $err, content: $bs"))
           case Successful(a) => Pull.pure(a)
         }
       }
@@ -370,7 +371,7 @@ object WebSocket {
     def frame2WebSocketFrame[F[_], A](maskKey: => Option[Int])(implicit W: Encoder[A]): Pipe[F, Frame[A], WebSocketFrame] = {
       _.flatMap { frame =>
         W.encode(frame.a) match {
-          case Failure(err) => Stream.fail(new Throwable(s"Failed to encode frame: $err (frame: $frame)"))
+          case Failure(err) => Stream.raiseError(new Throwable(s"Failed to encode frame: $err (frame: $frame)"))
           case Successful(payload) =>
             val opCode = if (frame.isText) OpCode.Text else OpCode.Binary
             Stream.emit(WebSocketFrame(fin = true, (false, false, false), opCode, payload.bytes, maskKey))
@@ -391,7 +392,7 @@ object WebSocket {
     def encodeWebSocketFrame[F[_]](flag: Boolean): Pipe[F, WebSocketFrame, Byte] = {
       _.append(Stream.emit(closeFrame)).flatMap { wsf =>
         WebSocketFrameCodec.codec.encode(wsf) match {
-          case Failure(err) => Stream.fail(new Throwable(s"Failed to encode websocket frame: $err (frame: $wsf)"))
+          case Failure(err) => Stream.raiseError(new Throwable(s"Failed to encode websocket frame: $err (frame: $wsf)"))
           case Successful(data) => Stream.chunk(ByteVectorChunk(data.bytes))
         }
       }
@@ -423,7 +424,7 @@ object WebSocket {
       }}
       .flatMap { case (unconfirmed, out) =>
         if (unconfirmed < 3) out
-        else Stream.fail(new Throwable(s"Maximum number of unconfirmed pings exceeded: $unconfirmed"))
+        else Stream.raiseError(new Throwable(s"Maximum number of unconfirmed pings exceeded: $unconfirmed"))
       }
     }
 
@@ -484,19 +485,19 @@ object WebSocket {
       def validateFingerPrint: Stream[F,Unit] =
       response.headers.collectFirst {
         case `Sec-WebSocket-Accept`(receivedFp) =>
-          if (receivedFp != expectFingerPrint) fail(new Throwable(s"Websocket fingerprints won't match, expected $expectFingerPrint, but got $receivedFp"))
+          if (receivedFp != expectFingerPrint) raiseError(new Throwable(s"Websocket fingerprints won't match, expected $expectFingerPrint, but got $receivedFp"))
           else emit(())
-      }.getOrElse(fail(new Throwable(s"Websocket response is missing the `Sec-WebSocket-Accept` header : $response")))
+      }.getOrElse(raiseError(new Throwable(s"Websocket response is missing the `Sec-WebSocket-Accept` header : $response")))
 
       def validateUpgrade: Stream[F,Unit] =
         response.headers.collectFirst {
           case Upgrade(pds) if pds.exists { pd => pd.name.equalsIgnoreCase("websocket")  && pd.comment.isEmpty }  => emit(())
-        }.getOrElse(fail(new Throwable(s"WebSocket response must contain header 'Upgrade: websocket' : $response")))
+        }.getOrElse(raiseError(new Throwable(s"WebSocket response must contain header 'Upgrade: websocket' : $response")))
 
       def validateConnection: Stream[F,Unit] =
         response.headers.collectFirst {
           case Connection(ids) if ids.exists(_.equalsIgnoreCase("upgrade")) => emit(())
-        }.getOrElse(fail(new Throwable(s"WebSocket response must contain header 'Connection: Upgrade' : $response")))
+        }.getOrElse(raiseError(new Throwable(s"WebSocket response must contain header 'Connection: Upgrade' : $response")))
 
       def validateProtocols: Stream[F,Unit] = {
         val received =
@@ -509,7 +510,7 @@ object WebSocket {
             case `Sec-WebSocket-Protocol`(protocols) => protocols
           }.getOrElse(Nil)
 
-        if (expected.diff(received).nonEmpty) fail(new Throwable(s"Websocket protocols do not match. Expected $expected, received: $received"))
+        if (expected.diff(received).nonEmpty) raiseError(new Throwable(s"Websocket protocols do not match. Expected $expected, received: $received"))
         else emit(())
       }
 
@@ -524,7 +525,7 @@ object WebSocket {
             case `Sec-WebSocket-Extensions`(extensions) => extensions
           }.getOrElse(Nil)
 
-        if (expected.diff(received).nonEmpty)  fail(new Throwable(s"Websocket extensions do not match. Expected $expected, received: $received"))
+        if (expected.diff(received).nonEmpty)  raiseError(new Throwable(s"Websocket extensions do not match. Expected $expected, received: $received"))
         else emit(())
       }
 

@@ -27,23 +27,23 @@ object ChunkedEncoding {
               val nh = header ++ bv
               val endOfheader = nh.indexOfSlice(`\r\n`)
               if (endOfheader == 0) go(expect, Stream.chunk(ByteVectorChunk(bv.drop(`\r\n`.size))) ++ tl) //strip any leading crlf on header, as this starts with /r/n
-              else if (endOfheader < 0 && nh.size > maxChunkHeaderSize) Pull.fail(new Throwable(s"Failed to get Chunk header. Size exceeds max($maxChunkHeaderSize) : ${nh.size} ${nh.decodeUtf8}"))
+              else if (endOfheader < 0 && nh.size > maxChunkHeaderSize) Pull.raiseError(new Throwable(s"Failed to get Chunk header. Size exceeds max($maxChunkHeaderSize) : ${nh.size} ${nh.decodeUtf8}"))
               else if (endOfheader < 0) go(Left(nh), tl)
               else {
                 val (hdr,rem) = nh.splitAt(endOfheader + `\r\n`.size)
                 readChunkedHeader(hdr.dropRight(`\r\n`.size)) match {
-                  case None => Pull.fail(new Throwable(s"Failed to parse chunked header : ${hdr.decodeUtf8}"))
+                  case None => Pull.raiseError(new Throwable(s"Failed to parse chunked header : ${hdr.decodeUtf8}"))
                   case Some(0) => Pull.done
                   case Some(sz) => go(Right(sz), Stream.chunk(ByteVectorChunk(rem)) ++ tl)
                 }
               }
 
             case Right(remains) =>
-              if (remains == bv.size) Pull.output(ByteVectorChunk(bv)) >> go(Left(ByteVector.empty), tl)
-              else if (remains > bv.size) Pull.output(ByteVectorChunk(bv)) >> go(Right(remains - bv.size), tl)
+              if (remains == bv.size) Pull.outputChunk(ByteVectorChunk(bv)) >> go(Left(ByteVector.empty), tl)
+              else if (remains > bv.size) Pull.outputChunk(ByteVectorChunk(bv)) >> go(Right(remains - bv.size), tl)
               else {
                 val (out,next) = bv.splitAt(remains.toInt)
-                Pull.output(ByteVectorChunk(out)) >> go(Left(ByteVector.empty), Stream.chunk(ByteVectorChunk(next)) ++ tl)
+                Pull.outputChunk(ByteVectorChunk(out)) >> go(Left(ByteVector.empty), Stream.chunk(ByteVectorChunk(next)) ++ tl)
               }
           }
 
@@ -64,7 +64,7 @@ object ChunkedEncoding {
       if (bv.isEmpty) Chunk.empty
       else ByteVectorChunk(ByteVector.view(bv.size.toHexString.toUpperCase.getBytes) ++ `\r\n` ++ bv ++ `\r\n` )
     }
-    _.mapChunks { ch => encodeChunk(chunk2ByteVector(ch)) } ++ Stream.chunk(lastChunk)
+    _.mapChunks { ch => encodeChunk(chunk2ByteVector(ch)).toSegment } ++ Stream.chunk(lastChunk)
   }
 
 

@@ -1,7 +1,8 @@
 package spinoco.fs2.http.body
 
 import fs2._
-import spinoco.protocol.http.header.value.{ContentType, HttpCharset}
+import spinoco.protocol.mime.{ContentType, MIMECharset}
+import spinoco.fs2.http.util
 
 
 sealed trait StreamBodyDecoder[F[_], A] {
@@ -19,7 +20,7 @@ object StreamBodyDecoder {
 
   def utf8StringDecoder[F[_]]: StreamBodyDecoder[F, String] =
     StreamBodyDecoder { ct =>
-      if (ct.mediaType.isText && ct.charset.contains(HttpCharset.`UTF-8`)) Some(text.utf8Decode[F])
+      if (ct.mediaType.isText && util.getCharset(ct).contains(MIMECharset.`UTF-8`)) Some(text.utf8Decode[F])
       else None
     }
 

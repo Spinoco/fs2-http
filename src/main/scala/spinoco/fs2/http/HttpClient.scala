@@ -11,7 +11,7 @@ import spinoco.fs2.http.internal.{addressForRequest, liftToSecure, readWithTimeo
 import spinoco.fs2.http.sse.{SSEDecoder, SSEEncoding}
 import spinoco.fs2.http.websocket.{Frame, WebSocket, WebSocketRequest}
 import spinoco.protocol.http.header._
-import spinoco.protocol.http.header.value.MediaType
+import spinoco.protocol.mime.MediaType
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
 
 import scala.concurrent.ExecutionContext
@@ -151,7 +151,7 @@ trait HttpClient[F[_]] {
       def sse[A](rq: HttpRequest[F], maxResponseHeaderSize: Int, chunkSize: Int)(implicit D: SSEDecoder[A]): Stream[F, A] =
         request(rq, chunkSize, maxResponseHeaderSize, Duration.Inf).flatMap { resp =>
           if (resp.header.headers.exists { case `Content-Type`(ct) => ct.mediaType == MediaType.`text/event-stream`  })
-            Stream.fail(new Throwable(s"Received response is not SSE: $resp"))
+            Stream.raiseError(new Throwable(s"Received response is not SSE: $resp"))
           else
             resp.body through SSEEncoding.decodeA[F, A]
         }

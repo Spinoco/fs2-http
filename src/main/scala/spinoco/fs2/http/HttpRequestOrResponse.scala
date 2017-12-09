@@ -9,7 +9,7 @@ import spinoco.fs2.http.body.{BodyDecoder, BodyEncoder, StreamBodyEncoder}
 import fs2.interop.scodec.ByteVectorChunk
 import spinoco.protocol.http._
 import header._
-import header.value.{ContentType, MediaType}
+import spinoco.protocol.mime.{ContentType, MediaType}
 import scodec.bits.ByteVector
 import spinoco.fs2.http.sse.{SSEEncoder, SSEEncoding}
 
@@ -46,7 +46,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
   /** encodes body `A` given BodyEncoder exists **/
   def withBody[A](a: A)(implicit W: BodyEncoder[A]): Self = {
     W.encode(a) match {
-      case Failure(err) => updateBody(body = Stream.fail(new Throwable(s"failed to encode $a: $err")))
+      case Failure(err) => updateBody(body = Stream.raiseError(new Throwable(s"failed to encode $a: $err")))
       case Successful(bytes) =>
         val headers = withHeaders {
            _.filterNot { h => h.isInstanceOf[`Content-Type`] || h.isInstanceOf[`Content-Length`] } ++
@@ -215,7 +215,7 @@ object HttpRequest {
     import internal._
     _ through httpHeaderAndBody(maxHeaderSize) flatMap { case (header, bodyRaw) =>
       headerCodec.decodeValue(header.bits) match {
-        case Failure(err) => Stream.fail(new Throwable(s"Decoding of the request header failed: $err"))
+        case Failure(err) => Stream.raiseError(new Throwable(s"Decoding of the request header failed: $err"))
         case Successful(decoded) =>
           val body =
             if (bodyIsChunked(decoded.headers)) bodyRaw through ChunkedEncoding.decode(1000)
@@ -245,7 +245,7 @@ object HttpRequest {
     import internal._
 
     headerCodec.encode(request.header) match {
-      case Failure(err) => Stream.fail(new Throwable(s"Encoding of the header failed: $err"))
+      case Failure(err) => Stream.raiseError(new Throwable(s"Encoding of the header failed: $err"))
       case Successful(bits) =>
         val body =
           if (request.bodyIsChunked)  request.body through ChunkedEncoding.encode
@@ -281,7 +281,7 @@ final case class HttpResponse[F[_]](
   def sseBody[A](in: Stream[F, A])(implicit E: SSEEncoder[A]): Self =
      self
      .updateBody(in through SSEEncoding.encodeA[F, A])
-     .updateHeaders(withHeaders(internal.swapHeader(`Content-Type`(ContentType(MediaType.`text/event-stream`, None, None)))))
+     .updateHeaders(withHeaders(internal.swapHeader(`Content-Type`(ContentType.TextContent(MediaType.`text/event-stream`, None)))))
 }
 
 
@@ -307,7 +307,7 @@ object HttpResponse {
 
     _ through httpHeaderAndBody(maxHeaderSize) flatMap { case (header, bodyRaw) =>
       responseCodec.decodeValue(header.bits) match {
-        case Failure(err) => Stream.fail(new Throwable(s"Failed to decode http response :$err"))
+        case Failure(err) => Stream.raiseError(new Throwable(s"Failed to decode http response :$err"))
         case Successful(response) =>
           val unboundedBody =
             if (bodyIsChunked(response.headers)) bodyRaw through ChunkedEncoding.decode(1024)
@@ -330,7 +330,7 @@ object HttpResponse {
     import internal._
 
     headerCodec.encode(response.header) match {
-      case Failure(err) => Stream.fail(new Throwable(s"Failed to encode http response : $response :$err "))
+      case Failure(err) => Stream.raiseError(new Throwable(s"Failed to encode http response : $response :$err "))
       case Successful(encoded) =>
         val body =
           if (bodyIsChunked(response.header.headers)) response.body through ChunkedEncoding.encode

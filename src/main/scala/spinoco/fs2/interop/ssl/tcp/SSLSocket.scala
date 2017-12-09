@@ -50,10 +50,10 @@ object SSLSocket {
             else {
               if (soFar < numBytes) {
                 self.read(numBytes - soFar, deadline.map(_.timeLeft)).flatMap {
-                  case None => if (soFar > 0) F.pure(Some(buff.toChunk)) else F.pure(None)
-                  case Some(bytes) => go(buff ++ bytes, soFar + bytes.size)
+                  case None => if (soFar > 0) F.pure(Some(buff.force.toChunk)) else F.pure(None)
+                  case Some(bytes) => go(buff ++ bytes.toSegment, soFar + bytes.size)
                 }
-              } else F.pure(Some(buff.toChunk))
+              } else F.pure(Some(buff.force.toChunk))
             }
           }
           go(Segment.empty, 0)
@@ -143,18 +143,18 @@ object SSLSocket {
       def go(bytes: Chunk[Byte]): F[Unit] = {
         writeSemaphore.increment *> {
         sslEngine.wrapAvailable.flatMap { wrapAvailable =>
-        sslEngine.wrap(bytes.strict.take(wrapAvailable)).flatMap { result =>
+        sslEngine.wrap(bytes.take(wrapAvailable)).flatMap { result =>
         (if (result.output.nonEmpty) socket.write(result.output, timeout) else F.pure(())) *>
         writeSemaphore.decrement *> {
           if (result.closed) F.pure(())
           else {
             if (result.handshake.isEmpty) {
               if (wrapAvailable >= bytes.size) F.pure(())
-              else go(bytes.strict.drop(wrapAvailable))
+              else go(bytes.drop(wrapAvailable))
             }
             else {
               // after succesfull handshake, lets again perform wrap, to make sure all our bytes are written through
-              performHandshake(socket, sslEngine, statusRef, timeout, writeSemaphore, readSemaphore) *> go(bytes.strict.drop(wrapAvailable))
+              performHandshake(socket, sslEngine, statusRef, timeout, writeSemaphore, readSemaphore) *> go(bytes.drop(wrapAvailable))
             }
           }
         }}
@@ -231,12 +231,12 @@ object SSLSocket {
     def awaitHandshakeComplete[F[_]](
       statusRef: Ref[F, SocketStatus[F]]
     )(implicit F: Effect[F], EC: ExecutionContext) : F[Unit] = {
-      F.flatMap(async.ref[F, Unit]) { signal =>
+      F.flatMap(async.promise[F, Unit]) { gate =>
       F.flatMap(statusRef.modify({ s =>
-        if (s.handshakeInProgress) s.copy(notifyHandshakeDone = s.notifyHandshakeDone :+ signal.setAsyncPure(()))
+        if (s.handshakeInProgress) s.copy(notifyHandshakeDone = s.notifyHandshakeDone :+ gate.complete(()))
         else s
       })) { change =>
-        if (change.previous.handshakeInProgress) signal.get
+        if (change.previous.handshakeInProgress) gate.get
         else F.pure(())
       }}
     }
@@ -291,7 +291,7 @@ object SSLSocket {
       // note that this is guarded by write semaphore for the wrap and write operation to assure we don't interfere with other write
       def wrap: F[Unit] = {
         def send(data: Vector[Chunk[Byte]]): F[Unit] = {
-          val bytes = Segment.vector(data).flatten.toChunk
+          val bytes = Chunk.vector(data).flatten
           if (bytes.nonEmpty) socket.write(bytes, handshakeTimeout)
           else F.pure(())
         }
@@ -362,7 +362,7 @@ object SSLSocket {
       , statusRef: Ref[F, SocketStatus[F]]
     )(implicit F: Effect[F]):F[Unit] = {
       if (chunk.isEmpty) F.pure(())
-      else F.map(statusRef.modify { s => s.copy(buff = (s.buff ++ chunk).toChunk) }) { _ => () }
+      else F.map(statusRef.modify { s => s.copy(buff = Chunk.vector(s.buff.toVector ++ chunk.toVector)) }) { _ => () }
     }
 
 
@@ -377,8 +377,8 @@ object SSLSocket {
       statusRef.modify2 { s =>
         if (s.buff.isEmpty) s -> EmptyBytes
         else {
-          val res = s.buff.strict.take(max)
-          val rem = s.buff.strict.drop(max)
+          val res = s.buff.take(max)
+          val rem = s.buff.drop(max)
           s.copy(buff = rem) -> res
         }
       }.map(_._2)
