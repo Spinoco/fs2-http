@@ -5,13 +5,12 @@ import java.util.concurrent.TimeoutException
 import javax.net.ssl.SSLContext
 
 import fs2.Stream._
-import fs2.crypto.TLSEngine
-import fs2.crypto.io.tcp.TLSSocket
 import fs2.io.tcp.Socket
 import fs2.util.Async
 import fs2.util.syntax._
 import fs2.{Stream, _}
 import scodec.bits.ByteVector
+import spinoco.fs2.crypto.io.tcp.TLSSocket
 import spinoco.fs2.interop.scodec.ByteVectorChunk
 import spinoco.protocol.http.{HostPort, HttpScheme}
 import spinoco.protocol.http.header.{HttpHeader, `Transfer-Encoding`}
@@ -126,9 +125,8 @@ package object internal {
       ctx
     }
     .flatMap { jengine =>
-      TLSEngine(jengine)(F, sslStrategy).flatMap { engine =>
-        TLSSocket(socket, engine).map { socket => socket:Socket[F]}
-      }}
+      TLSSocket(socket, jengine)(F, sslStrategy).map { x => x:Socket[F] }
+    }
   }
 
 }
