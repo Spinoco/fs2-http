@@ -2,7 +2,7 @@
 
 Minimalistic yet powerful http client and server with scala fs2 library. 
 
-[![Build Status](https://travis-ci.org/Spinoco/fs2-http.svg?branch=master)](https://travis-ci.org/Spinoco/fs2-http)
+[![Build Status](https://travis-ci.org/Spinoco/fs2-http.svg?branch=series/0.2)](https://travis-ci.org/Spinoco/fs2-http)
 [![Gitter Chat](https://badges.gitter.im/functional-streams-for-scala/fs2.svg)](https://gitter.im/fs2-http/Lobby)
 
 ## Overview
@@ -30,17 +30,17 @@ functional library, such as scalaz or cats.
 Add this to your sbt build file : 
 
 ```
-libraryDependencies += "com.spinoco" %% "fs2-http" % "0.1.7" 
+libraryDependencies += "com.spinoco" %% "fs2-http" % "0.2.0" 
 ```
 
 ### Dependencies
 
 version  |    scala  |   fs2  |  scodec | shapeless      
 ---------|-----------|--------|---------|-----------
-0.1.7    | 2.11, 2.12| 0.9.5  | 1.10.3  | 2.3.2
-0.1.6    | 2.11, 2.12| 0.9.4  | 1.10.3  | 2.3.2 
-0.1.3    | 2.11, 2.12| 0.9.2  | 1.10.3  | 2.3.2 
+0.2.0    | 2.11, 2.12| 0.9.7  | 1.10.3  | 2.3.2 
+0.1.7    | 2.11, 2.12| 0.9.5  | 1.10.3  | 2.3.2 
 
+Note that 0.2.x is not binary compatible with 0.1.x series 
 
 ## Usage
 
