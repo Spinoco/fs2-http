@@ -31,7 +31,7 @@ lazy val commonSettings = Seq(
      , "org.scalacheck" %% "scalacheck" % "1.13.4" % "test"
      , "com.spinoco" %% "protocol-http" % "0.3.0"
      , "com.spinoco" %% "protocol-websocket" % "0.3.0"
-     , "com.spinoco" %% "fs2-crypto" % "0.1.0"
+     , "com.spinoco" %% "fs2-crypto" % "0.1.1"
      , "co.fs2" %% "fs2-core" % "0.9.7"
      , "co.fs2" %% "fs2-io" % "0.9.7"
    ),
