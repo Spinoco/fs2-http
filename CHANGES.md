@@ -1,3 +1,7 @@
+# 0.2.1
+
+- updated TLSEngine to fix handshake with some TLS Server implementations
+
 # 0.2.0
 
 - support for protocol-http 0.3
