@@ -21,7 +21,7 @@ object HttpResponseSpec extends Properties("HttpResponse") {
       .withUtf8Body("Hello World")
 
     HttpResponse.toStream(response, HttpResponseHeaderCodec.defaultCodec)
-      .chunks.runLog.map { _.map(chunk2ByteVector).reduce { _ ++ _ }.decodeUtf8 }
+      .chunks.compile.toVector.map { _.map(chunk2ByteVector).reduce { _ ++ _ }.decodeUtf8 }
       .unsafeRunSync() ?=
       Right(Seq(
         "HTTP/1.1 200 OK"
@@ -48,7 +48,7 @@ object HttpResponseSpec extends Properties("HttpResponse") {
     .covary[IO]
     .through(HttpResponse.fromStream[IO](4096, HttpResponseHeaderCodec.defaultCodec))
     .flatMap { response => Stream.eval(response.bodyAsString).map(response.header -> _ ) }
-    .runLog.unsafeRunSync() ?=
+    .compile.toVector.unsafeRunSync() ?=
     Vector(
       HttpResponseHeader(
         status = HttpStatusCode.Ok

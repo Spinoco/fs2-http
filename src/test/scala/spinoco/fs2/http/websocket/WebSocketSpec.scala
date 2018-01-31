@@ -40,7 +40,7 @@ object WebSocketSpec extends Properties("WebSocket") {
     def clientData: Pipe[IO, Frame[String], Frame[String]] = { inbound =>
       val output =  Sch.awakeEvery[IO](1.seconds).map { dur => Frame.Text(s" ECHO $dur") }.take(5)
 
-      output concurrently inbound.take(5).map { in => received = received :+ in }
+      output merge inbound.take(5).evalMap { in => IO(received = received :+ in)}.drain
     }
 
     val serverStream =
@@ -60,7 +60,7 @@ object WebSocketSpec extends Properties("WebSocket") {
       )
 
     val resultClient =
-      (serverStream.drain mergeHaltBoth clientStream).runLog.unsafeRunTimed(20.seconds)
+      (serverStream.drain mergeHaltBoth clientStream).compile.toVector.unsafeRunTimed(20.seconds)
 
     (resultClient ?= Some(Vector(None))) &&
       (received.size ?= 5)

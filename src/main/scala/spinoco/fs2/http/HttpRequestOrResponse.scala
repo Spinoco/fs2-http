@@ -68,7 +68,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
     withHeaders { _.collectFirst { case `Content-Type`(ct) => ct } match {
       case None => F.pure(Attempt.failure(Err("Content type is not known")))
       case Some(ct) =>
-        F.map(self.body.chunks.map(util.chunk2ByteVector).runLog) { bs =>
+        F.map(self.body.chunks.map(util.chunk2ByteVector).compile.toVector) { bs =>
           if (bs.isEmpty) Attempt.failure(Err("Body is empty"))
           else D.decode(bs.reduce(_ ++ _), ct)
         }

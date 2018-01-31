@@ -38,11 +38,11 @@ object StreamBodyEncoder {
 
   /** encoder that encodes bytes as they come in, with `application/octet-stream` content type **/
   def byteEncoder[F[_]] : StreamBodyEncoder[F, Byte] =
-    StreamBodyEncoder(ContentType.BinaryContent(MediaType.`application/octet-stream`)) { identity }
+    StreamBodyEncoder(ContentType.BinaryContent(MediaType.`application/octet-stream`, None)) { identity }
 
   /** encoder that encodes ByteVector as they come in, with `application/octet-stream` content type **/
   def byteVectorEncoder[F[_]] : StreamBodyEncoder[F, ByteVector] =
-    StreamBodyEncoder(ContentType.BinaryContent(MediaType.`application/octet-stream`)) { _.flatMap { bv => Stream.chunk(ByteVectorChunk(bv)) } }
+    StreamBodyEncoder(ContentType.BinaryContent(MediaType.`application/octet-stream`, None)) { _.flatMap { bv => Stream.chunk(ByteVectorChunk(bv)) } }
 
   /** encoder that encodes utf8 string, with `text/plain` utf8 content type **/
   def utf8StringEncoder[F[_]](implicit F: MonadError[F, Throwable]) : StreamBodyEncoder[F, String] =

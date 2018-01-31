@@ -30,7 +30,7 @@ object UtilSpec extends Properties("util"){
     .chunks
     .fold(ByteVector.empty){ case (acc, n) => acc ++ chunk2ByteVector(n)}
     .map(_.decodeUtf8)
-    .runLog.unsafeRunSync() ?= Vector(
+    .compile.toVector.unsafeRunSync() ?= Vector(
       Right(ByteVector.view(sample.text.getBytes).toBase64(sample.alphabet))
     )
   }
@@ -45,7 +45,7 @@ object UtilSpec extends Properties("util"){
     .chunks
     .fold(ByteVector.empty){ case (acc, n) => acc ++ chunk2ByteVector(n)}
     .map(_.decodeUtf8)
-    .runLog.unsafeRunSync() ?= Vector(
+    .compile.toVector.unsafeRunSync() ?= Vector(
       Right(sample.text)
     )
   }
@@ -57,7 +57,7 @@ object UtilSpec extends Properties("util"){
       .through(util.decodeBase64Raw(sample.alphabet))
       .chunks
       .fold(ByteVector.empty){ case (acc, n) => acc ++ chunk2ByteVector(n)}
-      .runLog.unsafeRunSync()
+      .compile.toVector.unsafeRunSync()
 
 
 

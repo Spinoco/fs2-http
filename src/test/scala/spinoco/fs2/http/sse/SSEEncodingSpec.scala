@@ -19,7 +19,7 @@ object SSEEncodingSpec extends Properties("SSEEncoding") {
       , SSEMessage.SSEData(Seq("data4"), Some("event1"), None)
       , SSEMessage.SSEData(Seq("data5"), None, Some("id1"))
       , SSEMessage.SSEData(Seq("data6"), Some("event2"), Some("id2"))
-    ).covary[IO].through(SSEEncoding.encode[IO]).chunks.runLog.map { _ map chunk2ByteVector reduce (_ ++ _) decodeUtf8  }.unsafeRunSync() ?=
+    ).covary[IO].through(SSEEncoding.encode[IO]).chunks.compile.toVector.map { _ map chunk2ByteVector reduce (_ ++ _) decodeUtf8  }.unsafeRunSync() ?=
     Right(
     "data: data1\n\ndata: data2\ndata: data3\n\nevent: event1\ndata: data4\n\ndata: data5\nid: id1\n\nevent: event2\ndata: data6\nid: id2\n\n"
     )
@@ -32,7 +32,7 @@ object SSEEncodingSpec extends Properties("SSEEncoding") {
       ": test stream\n\ndata: first event\nid: 1\n\ndata:second event\nid\n\ndata:  third event".getBytes()
     )))
     .covary[IO]
-    .through(SSEEncoding.decode[IO]).runLog.unsafeRunSync() ?=
+    .through(SSEEncoding.decode[IO]).compile.toVector.unsafeRunSync() ?=
     Vector(
       SSEData(Vector("first event"), None, Some("1"))
       , SSEData(Vector("second event"), None, Some(""))
@@ -46,7 +46,7 @@ object SSEEncodingSpec extends Properties("SSEEncoding") {
       "data\n\ndata\ndata\n\ndata:".getBytes()
     )))
     .covary[IO]
-    .through(SSEEncoding.decode[IO]).runLog.unsafeRunSync() ?=
+    .through(SSEEncoding.decode[IO]).compile.toVector.unsafeRunSync() ?=
     Vector(
       SSEData(Vector(""), None, None)
       , SSEData(Vector("",""), None, None)
@@ -61,7 +61,7 @@ object SSEEncodingSpec extends Properties("SSEEncoding") {
       "data:test\n\ndata: test\n\n".getBytes()
     )))
     .covary[IO]
-    .through(SSEEncoding.decode[IO]).runLog.unsafeRunSync() ?=
+    .through(SSEEncoding.decode[IO]).compile.toVector.unsafeRunSync() ?=
     Vector(
       SSEData(Vector("test"), None, None)
       , SSEData(Vector("test"), None, None)

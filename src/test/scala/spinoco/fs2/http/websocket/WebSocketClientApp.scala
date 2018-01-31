@@ -27,6 +27,6 @@ object WebSocketClientApp extends App {
     , wspipe
   ).map { x =>
     println(("RESULT OF WS", x))
-  }.run.unsafeRunSync()
+  }.compile.drain.unsafeRunSync()
 
 }

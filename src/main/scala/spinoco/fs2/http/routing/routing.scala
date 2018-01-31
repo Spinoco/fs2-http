@@ -192,7 +192,7 @@ package object routing {
     def as[A](implicit D: BodyDecoder[A], F: Effect[F]): Matcher[F, A] = {
       header[`Content-Type`].flatMap { ct =>
         bytes.flatMap { s => eval {
-          F.map(s.chunks.runLog) { chunks =>
+          F.map(s.chunks.compile.toVector) { chunks =>
             val bytes =
               if (chunks.isEmpty) ByteVector.empty
               else chunks.map(chunk2ByteVector).reduce(_ ++ _)

@@ -74,15 +74,15 @@ object HttpServer {
         .evalMap { attempt =>
 
           def send(request:Option[HttpRequestHeader], resp: HttpResponse[F]): F[Unit] = {
-            HttpResponse.toStream(resp, responseCodec).through(socket.writes()).onFinalize(socket.endOfOutput).run.attempt flatMap {
-              case Left(err) => sendFailure(request, resp, err).run
+            HttpResponse.toStream(resp, responseCodec).through(socket.writes()).onFinalize(socket.endOfOutput).compile.drain.attempt flatMap {
+              case Left(err) => sendFailure(request, resp, err).compile.drain
               case Right(()) => F.pure(())
             }
           }
 
           attempt match {
             case Right((request, response)) => send(Some(request), response)
-            case Left(err) => requestFailure(err) evalMap { send(None, _) } run
+            case Left(err) => requestFailure(err).evalMap { send(None, _) }.compile.drain
           }
         }
         .drain

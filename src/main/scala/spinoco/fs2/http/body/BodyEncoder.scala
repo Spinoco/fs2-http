@@ -33,7 +33,7 @@ object BodyEncoder {
       def contentType: ContentType = tpe
     }
 
-  def byteVector(tpe: ContentType = ContentType.BinaryContent(MediaType.`application/octet-stream`)): BodyEncoder[ByteVector] =
+  def byteVector(tpe: ContentType = ContentType.BinaryContent(MediaType.`application/octet-stream`, None)): BodyEncoder[ByteVector] =
     BodyEncoder(tpe)(Attempt.successful)
 
   val utf8String: BodyEncoder[String] =
