@@ -133,7 +133,7 @@ trait HttpClient[F[_]] {
         io.tcp.client(address)
         .evalMap { socket =>
           if (!request.isSecure) F.pure(socket)
-          else liftToSecure(sslS, sslCtx)(socket)
+          else liftToSecure(sslS, sslCtx)(socket, true)
         }
         .flatMap { impl.request(request, chunkSize, maxResponseHeaderSize, timeout, requestCodec, responseCodec ) }}
       }

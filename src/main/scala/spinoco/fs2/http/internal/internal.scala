@@ -11,8 +11,7 @@ import fs2.interop.scodec.ByteVectorChunk
 import fs2.io.tcp.Socket
 import fs2.{Stream, _}
 import scodec.bits.ByteVector
-import spinoco.fs2.interop.ssl.SSLEngine
-import spinoco.fs2.interop.ssl.tcp.SSLSocket
+import spinoco.fs2.crypto.io.tcp.TLSSocket
 import spinoco.protocol.http.{HostPort, HttpScheme}
 import spinoco.protocol.http.header.{HttpHeader, `Transfer-Encoding`}
 
@@ -123,11 +122,15 @@ package object internal {
   }
 
   /** creates a function that lifts supplied socket to secure socket **/
-  def liftToSecure[F[_]](sslES: => ExecutionContext, sslContext: => SSLContext)(socket: Socket[F])(implicit F: Effect[F], EC: ExecutionContext): F[Socket[F]] = {
-    F.delay { sslContext.createSSLEngine() } flatMap { jengine =>
-      SSLEngine.client(jengine)(F, sslES) flatMap { engine =>
-        SSLSocket(socket, engine)
-      }}
+  def liftToSecure[F[_]](sslES: => ExecutionContext, sslContext: => SSLContext)(socket: Socket[F], clientMode: Boolean)(implicit F: Effect[F], EC: ExecutionContext): F[Socket[F]] = {
+    F.delay {
+      val engine = sslContext.createSSLEngine()
+      engine.setUseClientMode(clientMode)
+      engine
+    } flatMap {
+      TLSSocket(socket, _, sslES)
+      .map(identity) //This is here just to make scala understand types properly
+    }
   }
 
 }

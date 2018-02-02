@@ -110,7 +110,7 @@ object WebSocket {
     import Stream._
     eval(addressForRequest(if (request.secure) HttpScheme.WSS else HttpScheme.WS, request.hostPort)).flatMap { address =>
     io.tcp.client(address, receiveBufferSize = receiveBufferSize)
-    .evalMap { socket => if (request.secure) liftToSecure(sslES, sslContext)(socket) else F.pure(socket) }
+    .evalMap { socket => if (request.secure) liftToSecure(sslES, sslContext)(socket, true) else F.pure(socket) }
     .flatMap { socket =>
       val (header, fingerprint) = impl.createRequestHeaders(request.header)
       requestCodec.encode(header) match {
