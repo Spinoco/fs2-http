@@ -131,7 +131,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
   * @param body     Body of the request. If empty, no body will be emitted.
   */
 final case class HttpRequest[F[_]](
- scheme: HttpScheme.Value
+ scheme: Scheme
  , host: HostPort
  , header: HttpRequestHeader
  , body: Stream[F, Byte]

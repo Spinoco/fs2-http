@@ -12,7 +12,7 @@ import fs2.io.tcp.Socket
 import fs2.{Stream, _}
 import scodec.bits.ByteVector
 import spinoco.fs2.crypto.io.tcp.TLSSocket
-import spinoco.protocol.http.{HostPort, HttpScheme}
+import spinoco.protocol.http.{HostPort, HttpScheme, Scheme}
 import spinoco.protocol.http.header.{HttpHeader, `Transfer-Encoding`}
 
 import scala.concurrent.ExecutionContext
@@ -71,12 +71,13 @@ package object internal {
   }
 
 
-  /** evaluates address from the host port and scheme **/
-  def addressForRequest[F[_]](scheme: HttpScheme.Value, host: HostPort)(implicit F: Effect[F]):F[InetSocketAddress] = F.delay {
+  /** evaluates address from the host port and scheme, if this is a custom scheme we will default to port 8080**/
+  def addressForRequest[F[_]](scheme: Scheme, host: HostPort)(implicit F: Effect[F]):F[InetSocketAddress] = F.delay {
     val port = host.port.getOrElse {
       scheme match {
         case HttpScheme.HTTPS | HttpScheme.WSS => 443
         case HttpScheme.HTTP | HttpScheme.WS => 80
+        case _ => 8080
       }
     }
 
