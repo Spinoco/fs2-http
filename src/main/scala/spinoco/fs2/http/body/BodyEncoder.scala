@@ -3,7 +3,7 @@ package spinoco.fs2.http.body
 import scodec.bits.ByteVector
 import scodec.{Attempt, Encoder, Err}
 import spinoco.protocol.http.Uri
-import spinoco.protocol.http.header.value.{ContentType, HttpCharset, MediaType}
+import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 
 /**
   * Encodes one `A` to body, strictly
@@ -33,11 +33,11 @@ object BodyEncoder {
       def contentType: ContentType = tpe
     }
 
-  def byteVector(tpe: ContentType = ContentType(MediaType.`application/octet-stream`, None, None)): BodyEncoder[ByteVector] =
+  def byteVector(tpe: ContentType = ContentType.BinaryContent(MediaType.`application/octet-stream`, None)): BodyEncoder[ByteVector] =
     BodyEncoder(tpe)(Attempt.successful)
 
   val utf8String: BodyEncoder[String] =
-    BodyEncoder(ContentType(MediaType.`text/plain`, Some(HttpCharset.`UTF-8`), None)){ s =>
+    BodyEncoder(ContentType.TextContent(MediaType.`text/plain`, Some(MIMECharset.`UTF-8`))){ s =>
       Attempt.fromEither(ByteVector.encodeUtf8(s).left.map { ex => Err(s"Failed to encode string: ${ex.getMessage}, ($s)") })
     }
 
@@ -46,6 +46,6 @@ object BodyEncoder {
 
   /** encodes supplied query as application/x-www-form-urlencoded data **/
   def `x-www-form-urlencoded`: BodyEncoder[Uri.Query] =
-    forEncoder(ContentType(MediaType.`application/x-www-form-urlencoded`, None, None))(Uri.Query.codec)
+    forEncoder(ContentType.TextContent(MediaType.`application/x-www-form-urlencoded`, None))(Uri.Query.codec)
 
 }

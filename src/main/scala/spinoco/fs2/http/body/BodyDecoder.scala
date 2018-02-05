@@ -3,7 +3,8 @@ package spinoco.fs2.http.body
 import scodec.bits.ByteVector
 import scodec.{Attempt, Decoder, Err}
 import spinoco.protocol.http.Uri
-import spinoco.protocol.http.header.value.{ContentType, HttpCharset, MediaType}
+import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
+import spinoco.fs2.http.util
 
 
 trait BodyDecoder[A] {
@@ -25,7 +26,7 @@ object BodyDecoder {
   val stringDecoder: BodyDecoder[String] = BodyDecoder { case (bytes, ct) =>
     if (! ct.mediaType.isText) Attempt.Failure(Err(s"Media Type must be text, but is ${ct.mediaType}"))
     else {
-      HttpCharset.asJavaCharset(ct.charset.getOrElse(HttpCharset.`UTF-8`)).flatMap { implicit chs =>
+      MIMECharset.asJavaCharset(util.getCharset(ct).getOrElse(MIMECharset.`UTF-8`)).flatMap { implicit chs =>
         Attempt.fromEither(bytes.decodeString.left.map(ex => Err(s"Failed to decode string ContentType: $ct, charset: $chs, err: ${ex.getMessage}")))
       }
     }

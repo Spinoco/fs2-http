@@ -8,9 +8,8 @@ import org.scalacheck.Properties
 import org.scalacheck.Prop._
 import spinoco.fs2.http
 import spinoco.fs2.http.body.BodyEncoder
-//import spinoco.fs2.http.body.BodyEncoder
 import spinoco.protocol.http.header.{`Content-Length`, `Content-Type`}
-import spinoco.protocol.http.header.value.{ContentType, MediaType}
+import spinoco.protocol.mime.{ContentType, MediaType}
 import spinoco.protocol.http.{HttpRequestHeader, HttpStatusCode, Uri}
 
 import scala.concurrent.duration._
@@ -21,7 +20,7 @@ object HttpServerSpec extends Properties("HttpServer"){
   def echoService(request: HttpRequestHeader, body: Stream[IO,Byte]): Stream[IO,HttpResponse[IO]] = {
     if (request.path != Uri.Path / "echo") Stream.emit(HttpResponse[IO](HttpStatusCode.Ok).withUtf8Body("Hello World")).covary[IO]
     else {
-      val ct =  request.headers.collectFirst { case `Content-Type`(ct0) => ct0 }.getOrElse(ContentType(MediaType.`application/octet-stream`, None, None))
+      val ct =  request.headers.collectFirst { case `Content-Type`(ct0) => ct0 }.getOrElse(ContentType.BinaryContent(MediaType.`application/octet-stream`, None))
       val size = request.headers.collectFirst { case `Content-Length`(sz) => sz }.getOrElse(0l)
       val ok = HttpResponse(HttpStatusCode.Ok).chunkedEncoding.withContentType(ct).withBodySize(size)
 
@@ -30,11 +29,11 @@ object HttpServerSpec extends Properties("HttpServer"){
   }
 
   def failRouteService(request: HttpRequestHeader, body: Stream[IO,Byte]): Stream[IO,HttpResponse[IO]] = {
-    Stream.fail(new Throwable("Booom!"))
+    Stream.raiseError(new Throwable("Booom!"))
   }
 
   def failingResponse(request: HttpRequestHeader, body: Stream[IO,Byte]): Stream[IO,HttpResponse[IO]] = Stream {
-    HttpResponse(HttpStatusCode.Ok).copy(body = Stream.fail(new Throwable("Kaboom!")).covary[IO])
+    HttpResponse(HttpStatusCode.Ok).copy(body = Stream.raiseError(new Throwable("Kaboom!")).covary[IO])
   }.covary[IO]
 
 
@@ -57,7 +56,7 @@ object HttpServerSpec extends Properties("HttpServer"){
     .join(Int.MaxValue)
     .take(count)
     .filter { case (idx, success) => success }
-    .runLog.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
+    .compile.toVector.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
 
 
 
@@ -89,7 +88,7 @@ object HttpServerSpec extends Properties("HttpServer"){
     ).covary[IO] ++ Sch.sleep_[IO](1.second) ++ clients).join(Int.MaxValue))
     .take(count)
     .filter { case (idx, success) => success }
-    .runLog.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
+    .compile.toVector.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
 
   }
 
@@ -119,7 +118,7 @@ object HttpServerSpec extends Properties("HttpServer"){
     ).covary[IO] ++ Sch.sleep_[IO](1.second) ++ clients).join(Int.MaxValue))
     .take(count)
     .filter { case (idx, success) => success }
-    .runLog.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
+    .compile.toVector.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
   }
 
 
@@ -150,7 +149,7 @@ object HttpServerSpec extends Properties("HttpServer"){
     ).covary[IO] ++ Sch.sleep_[IO](1.second) ++ clients).join(Int.MaxValue))
       .take(count)
       .filter { case (idx, success) => success }
-      .runLog.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
+      .compile.toVector.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
   }
 
 

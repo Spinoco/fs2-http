@@ -8,6 +8,7 @@ import fs2._
 import fs2.interop.scodec.ByteVectorChunk
 import scodec.bits.{BitVector, ByteVector}
 import scodec.bits.Bases.{Alphabets, Base64Alphabet}
+import spinoco.protocol.mime.{ContentType, MIMECharset}
 
 import scala.concurrent.ExecutionContext
 import scala.util.control.NonFatal
@@ -26,7 +27,7 @@ package object util {
       _.pull.unconsChunk flatMap {
         case None =>
           if (rem.size == 0) Pull.done
-          else Pull.output(ByteVectorChunk(ByteVector.view(rem.toBase64(alphabet).getBytes)))
+          else Pull.outputChunk(ByteVectorChunk(ByteVector.view(rem.toBase64(alphabet).getBytes)))
 
         case Some((chunk, tl)) =>
           val n = rem ++ chunk2ByteVector(chunk)
@@ -40,7 +41,7 @@ package object util {
               out(pos) = alphabet.toChar(idx).toByte
               pos = pos + 1
             }
-            Pull.output(ByteVectorChunk(ByteVector.view(out))) >> go(n.takeRight(pad))(tl)
+            Pull.outputChunk(ByteVectorChunk(ByteVector.view(out))) >> go(n.takeRight(pad))(tl)
           } else {
             go(n)(tl)
           }
@@ -92,13 +93,13 @@ package object util {
             if (aligned <= 0 && !term) go(acc)(tl)
             else {
               val (out, rem) = acc.splitAt(aligned)
-              if (term) Pull.output(ByteVectorChunk(out.toByteVector))
-              else Pull.output(ByteVectorChunk(out.toByteVector)) >> go(rem)(tl)
+              if (term) Pull.outputChunk(ByteVectorChunk(out.toByteVector))
+              else Pull.outputChunk(ByteVectorChunk(out.toByteVector)) >> go(rem)(tl)
             }
 
           } catch {
             case e: IllegalArgumentException =>
-              Pull.fail(new Throwable(s"Invalid base 64 encoding at index $idx", e))
+              Pull.raiseError(new Throwable(s"Invalid base 64 encoding at index $idx", e))
           }
       }
     }
@@ -151,6 +152,13 @@ package object util {
         })
         t
       }
+    }
+  }
+
+  def getCharset(ct: ContentType): Option[MIMECharset] = {
+    ct match {
+      case ContentType.TextContent(_, maybeCharset) => maybeCharset
+      case _ => None
     }
   }
 

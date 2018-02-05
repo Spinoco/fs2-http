@@ -17,7 +17,7 @@ object HttpClientApp extends App {
 
     httpClient.request(HttpRequest.get(Uri.https("www.google.cz", "/"))).flatMap { resp =>
       Stream.eval(resp.bodyAsString)
-    }.runLog.map {
+    }.compile.toVector.map {
       println
     }
 

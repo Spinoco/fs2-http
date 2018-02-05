@@ -9,7 +9,7 @@ import spinoco.protocol.http.header._
 import spinoco.protocol.http.codec.HttpResponseHeaderCodec
 import spinoco.protocol.http.{HttpResponseHeader, HttpStatusCode}
 import spinoco.fs2.http.util.chunk2ByteVector
-import spinoco.protocol.http.header.value.{ContentType, HttpCharset, MediaType}
+import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 
 
 object HttpResponseSpec extends Properties("HttpResponse") {
@@ -21,7 +21,7 @@ object HttpResponseSpec extends Properties("HttpResponse") {
       .withUtf8Body("Hello World")
 
     HttpResponse.toStream(response, HttpResponseHeaderCodec.defaultCodec)
-      .chunks.runLog.map { _.map(chunk2ByteVector).reduce { _ ++ _ }.decodeUtf8 }
+      .chunks.compile.toVector.map { _.map(chunk2ByteVector).reduce { _ ++ _ }.decodeUtf8 }
       .unsafeRunSync() ?=
       Right(Seq(
         "HTTP/1.1 200 OK"
@@ -48,13 +48,13 @@ object HttpResponseSpec extends Properties("HttpResponse") {
     .covary[IO]
     .through(HttpResponse.fromStream[IO](4096, HttpResponseHeaderCodec.defaultCodec))
     .flatMap { response => Stream.eval(response.bodyAsString).map(response.header -> _ ) }
-    .runLog.unsafeRunSync() ?=
+    .compile.toVector.unsafeRunSync() ?=
     Vector(
       HttpResponseHeader(
         status = HttpStatusCode.Ok
         , reason = "OK"
         , headers = List(
-          `Content-Type`(ContentType(MediaType.`text/plain`, Some(HttpCharset.`UTF-8`), None))
+          `Content-Type`(ContentType.TextContent(MediaType.`text/plain`, Some(MIMECharset.`UTF-8`)))
           , `Content-Length`(11)
         )
       ) -> Attempt.Successful("Hello World")

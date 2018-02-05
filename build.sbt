@@ -29,11 +29,12 @@ lazy val commonSettings = Seq(
      "org.scodec" %% "scodec-bits" % "1.1.4"
      , "org.scodec" %% "scodec-core" % "1.10.3"
      , "org.scalacheck" %% "scalacheck" % "1.13.4" % "test"
-     , "com.spinoco" %% "protocol-http" % "0.1.8"
-     , "com.spinoco" %% "protocol-websocket" % "0.1.8"
-     , "co.fs2" %% "fs2-core" % "0.10.0-M6"
-     , "co.fs2" %% "fs2-io" % "0.10.0-M6"
-     , "co.fs2" %% "fs2-scodec" % "0.10.0-M6"
+     , "com.spinoco" %% "protocol-http" % "0.3.4"
+     , "com.spinoco" %% "protocol-websocket" % "0.3.4"
+     , "co.fs2" %% "fs2-core" % "0.10.0"
+     , "co.fs2" %% "fs2-io" % "0.10.0"
+     , "co.fs2" %% "fs2-scodec" % "0.10.0"
+     , "com.spinoco" %% "fs2-crypto" % "0.2.0"
    ),
    scmInfo := Some(ScmInfo(url("https://github.com/Spinoco/fs2-http"), "git@github.com:Spinoco/fs2-http.git")),
    homepage := None,

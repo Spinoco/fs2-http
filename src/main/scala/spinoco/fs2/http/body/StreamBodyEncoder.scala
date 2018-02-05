@@ -5,7 +5,7 @@ import fs2._
 import scodec.Attempt.{Failure, Successful}
 import scodec.bits.ByteVector
 import fs2.interop.scodec.ByteVectorChunk
-import spinoco.protocol.http.header.value.{ContentType, HttpCharset, MediaType}
+import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 
 
 trait StreamBodyEncoder[F[_], A] {
@@ -38,11 +38,11 @@ object StreamBodyEncoder {
 
   /** encoder that encodes bytes as they come in, with `application/octet-stream` content type **/
   def byteEncoder[F[_]] : StreamBodyEncoder[F, Byte] =
-    StreamBodyEncoder(ContentType(MediaType.`application/octet-stream`, None, None)) { identity }
+    StreamBodyEncoder(ContentType.BinaryContent(MediaType.`application/octet-stream`, None)) { identity }
 
   /** encoder that encodes ByteVector as they come in, with `application/octet-stream` content type **/
   def byteVectorEncoder[F[_]] : StreamBodyEncoder[F, ByteVector] =
-    StreamBodyEncoder(ContentType(MediaType.`application/octet-stream`, None, None)) { _.flatMap { bv => Stream.chunk(ByteVectorChunk(bv)) } }
+    StreamBodyEncoder(ContentType.BinaryContent(MediaType.`application/octet-stream`, None)) { _.flatMap { bv => Stream.chunk(ByteVectorChunk(bv)) } }
 
   /** encoder that encodes utf8 string, with `text/plain` utf8 content type **/
   def utf8StringEncoder[F[_]](implicit F: MonadError[F, Throwable]) : StreamBodyEncoder[F, String] =
@@ -51,13 +51,13 @@ object StreamBodyEncoder {
         case Right(bv) => F.pure(bv)
         case Left(err) => F.raiseError[ByteVector](new Throwable(s"Failed to encode string: $err ($s) "))
       }
-    } withContentType ContentType(MediaType.`text/plain`, Some(HttpCharset.`UTF-8`), None)
+    } withContentType ContentType.TextContent(MediaType.`text/plain`, Some(MIMECharset.`UTF-8`))
 
   /** a convenience wrapper to convert body encoder to StreamBodyEncoder **/
   def fromBodyEncoder[F[_], A](implicit E: BodyEncoder[A]):StreamBodyEncoder[F, A] =
     StreamBodyEncoder(E.contentType) { _.flatMap { a =>
       E.encode(a) match {
-        case Failure(err) => Stream.fail(new Throwable(s"Failed to encode: $err ($a)"))
+        case Failure(err) => Stream.raiseError(new Throwable(s"Failed to encode: $err ($a)"))
         case Successful(bytes) => Stream.chunk(ByteVectorChunk(bytes))
       }
     }}

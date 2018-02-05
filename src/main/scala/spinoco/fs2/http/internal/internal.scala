@@ -11,9 +11,8 @@ import fs2.interop.scodec.ByteVectorChunk
 import fs2.io.tcp.Socket
 import fs2.{Stream, _}
 import scodec.bits.ByteVector
-import spinoco.fs2.interop.ssl.SSLEngine
-import spinoco.fs2.interop.ssl.tcp.SSLSocket
-import spinoco.protocol.http.{HostPort, HttpScheme}
+import spinoco.fs2.crypto.io.tcp.TLSSocket
+import spinoco.protocol.http.{HostPort, HttpScheme, Scheme}
 import spinoco.protocol.http.header.{HttpHeader, `Transfer-Encoding`}
 
 import scala.concurrent.ExecutionContext
@@ -50,18 +49,18 @@ package object internal {
     def go(buff: ByteVector, in: Stream[F, Byte]): Pull[F, (ByteVector, Stream[F, Byte]), Unit] = {
       in.pull.unconsChunk flatMap {
         case None =>
-          Pull.fail(new Throwable(s"Incomplete Header received (sz = ${buff.size}): ${buff.decodeUtf8}"))
+          Pull.raiseError(new Throwable(s"Incomplete Header received (sz = ${buff.size}): ${buff.decodeUtf8}"))
         case Some((chunk, tl)) =>
           val bv = spinoco.fs2.http.util.chunk2ByteVector(chunk)
           val all = buff ++ bv
           val idx = all.indexOfSlice(`\r\n\r\n`)
           if (idx < 0) {
-            if (all.size > maxHeaderSize) Pull.fail(new Throwable(s"Size of the header exceeded the limit of $maxHeaderSize (${all.size})"))
+            if (all.size > maxHeaderSize) Pull.raiseError(new Throwable(s"Size of the header exceeded the limit of $maxHeaderSize (${all.size})"))
             else go(all, tl)
           }
           else {
             val (h, t) = all.splitAt(idx)
-            if (h.size > maxHeaderSize)  Pull.fail(new Throwable(s"Size of the header exceeded the limit of $maxHeaderSize (${all.size})"))
+            if (h.size > maxHeaderSize)  Pull.raiseError(new Throwable(s"Size of the header exceeded the limit of $maxHeaderSize (${all.size})"))
             else  Pull.output1((h, Stream.chunk(ByteVectorChunk(t.drop(`\r\n\r\n`.size))) ++ tl))
 
           }
@@ -72,12 +71,13 @@ package object internal {
   }
 
 
-  /** evaluates address from the host port and scheme **/
-  def addressForRequest[F[_]](scheme: HttpScheme.Value, host: HostPort)(implicit F: Effect[F]):F[InetSocketAddress] = F.delay {
+  /** evaluates address from the host port and scheme, if this is a custom scheme we will default to port 8080**/
+  def addressForRequest[F[_]](scheme: Scheme, host: HostPort)(implicit F: Effect[F]):F[InetSocketAddress] = F.delay {
     val port = host.port.getOrElse {
       scheme match {
         case HttpScheme.HTTPS | HttpScheme.WSS => 443
         case HttpScheme.HTTP | HttpScheme.WS => 80
+        case _ => 8080
       }
     }
 
@@ -106,7 +106,7 @@ package object internal {
       eval(shallTimeout).flatMap { shallTimeout =>
         if (!shallTimeout) socket.reads(chunkSize, None)
         else {
-          if (remains <= 0.millis) Stream.fail(new TimeoutException())
+          if (remains <= 0.millis) Stream.raiseError(new TimeoutException())
           else {
             eval(F.delay(System.currentTimeMillis())).flatMap { start =>
             eval(socket.read(chunkSize, Some(remains))).flatMap { read =>
@@ -123,11 +123,15 @@ package object internal {
   }
 
   /** creates a function that lifts supplied socket to secure socket **/
-  def liftToSecure[F[_]](sslES: => ExecutionContext, sslContext: => SSLContext)(socket: Socket[F])(implicit F: Effect[F], EC: ExecutionContext): F[Socket[F]] = {
-    F.delay { sslContext.createSSLEngine() } flatMap { jengine =>
-      SSLEngine.client(jengine)(F, sslES) flatMap { engine =>
-        SSLSocket(socket, engine)
-      }}
+  def liftToSecure[F[_]](sslES: => ExecutionContext, sslContext: => SSLContext)(socket: Socket[F], clientMode: Boolean)(implicit F: Effect[F], EC: ExecutionContext): F[Socket[F]] = {
+    F.delay {
+      val engine = sslContext.createSSLEngine()
+      engine.setUseClientMode(clientMode)
+      engine
+    } flatMap {
+      TLSSocket(socket, _, sslES)
+      .map(identity) //This is here just to make scala understand types properly
+    }
   }
 
 }

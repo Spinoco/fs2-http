@@ -38,7 +38,7 @@ object SSEEncoding {
   def encodeA[F[_], A](implicit E: SSEEncoder[A]): Pipe[F, A, Byte] = {
     _ flatMap { a => E.encode(a) match {
       case Attempt.Successful(msg) => Stream.emit(msg)
-      case Attempt.Failure(err) => Stream.fail(new Throwable(s"Failed to encode $a : $err"))
+      case Attempt.Failure(err) => Stream.raiseError(new Throwable(s"Failed to encode $a : $err"))
     }} through encode
   }
 
@@ -52,13 +52,13 @@ object SSEEncoding {
     // drops initial Byte Order Mark, if present
     def dropInitial(buff:ByteVector): Pipe[F, Byte, Byte] = {
       _.pull.unconsChunk.flatMap {
-        case None => Pull.fail(new Throwable("SSE Socket did not contain any data"))
+        case None => Pull.raiseError(new Throwable("SSE Socket did not contain any data"))
         case Some((chunk, next)) =>
           val all = buff ++ chunk2ByteVector(chunk)
           if (all.size < 2) (next through dropInitial(all)).pull.echo
           else {
-            if (all.startsWith(StartBom)) Pull.output(ByteVectorChunk(all.drop(2))) >> next.pull.echo
-            else Pull.output(ByteVectorChunk(all)) >> next.pull.echo
+            if (all.startsWith(StartBom)) Pull.outputChunk(ByteVectorChunk(all.drop(2))) >> next.pull.echo
+            else Pull.outputChunk(ByteVectorChunk(all)) >> next.pull.echo
           }
       }.stream
     }
@@ -83,7 +83,7 @@ object SSEEncoding {
             val event = lines.toList.takeWhile(_.nonEmpty)
             // size of event lines is NOT equal with size of lines only when there is nonEmpty line
             if (event.size == lines.size) go(buff ++ event)(tl)
-            else Pull.output1(buff ++ event) >> go(Vector.empty)(Stream.chunk(lines.strict.drop(event.size + 1)) ++ tl)
+            else Pull.output1(buff ++ event) >> go(Vector.empty)(Stream.chunk(lines.drop(event.size + 1)) ++ tl)
         }
       }
 
@@ -136,7 +136,7 @@ object SSEEncoding {
     _ through decode flatMap { msg =>
       D.decode(msg) match {
         case Attempt.Successful(a) => Stream.emit(a)
-        case Attempt.Failure(err) => Stream.fail(new Throwable(s"Failed do decode: $msg : $err"))
+        case Attempt.Failure(err) => Stream.raiseError(new Throwable(s"Failed do decode: $msg : $err"))
       }
     }
   }

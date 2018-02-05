@@ -101,10 +101,7 @@ package object routing {
     */
   def param[A](key: String)(implicit decoder: StringDecoder[A]) : Matcher[Nothing,A] =
     Match[Nothing, A] { (header, _) =>
-      header.query.params.collectFirst( Function.unlift { case (k, v) =>
-        if (k == key) decoder.decode(v)
-        else None
-      }) match {
+      header.query.valueOf(key).flatMap(decoder.decode) match {
         case None => BadRequest
         case Some(a) => Success(a)
       }
@@ -195,7 +192,7 @@ package object routing {
     def as[A](implicit D: BodyDecoder[A], F: Effect[F]): Matcher[F, A] = {
       header[`Content-Type`].flatMap { ct =>
         bytes.flatMap { s => eval {
-          F.map(s.chunks.runLog) { chunks =>
+          F.map(s.chunks.compile.toVector) { chunks =>
             val bytes =
               if (chunks.isEmpty) ByteVector.empty
               else chunks.map(chunk2ByteVector).reduce(_ ++ _)

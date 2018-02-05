@@ -15,7 +15,7 @@ object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
 
     (in through ChunkedEncoding.encode through ChunkedEncoding.decode(1024))
     .chunks
-    .runLog
+    .compile.toVector
     .map(_.foldLeft(ByteVector.empty){ case (bv, n) => bv ++ chunk2ByteVector(n) })
     .map(_.decodeUtf8)
     .unsafeRunSync() ?= Right(
@@ -41,7 +41,7 @@ object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
     (Stream.chunk[Byte](Chunk.bytes(wikiExample.getBytes)) through ChunkedEncoding.decode(1024))
     .covary[IO]
     .chunks
-    .runLog
+    .compile.toVector
     .map(_.foldLeft(ByteVector.empty){ case (bv, n) => bv ++ chunk2ByteVector(n) })
     .map(_.decodeUtf8)
     .unsafeRunSync() ?= Right(
@@ -61,7 +61,7 @@ object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
 
     (chunks through ChunkedEncoding.encode)
       .chunks
-      .runLog
+      .compile.toVector
       .map(_.foldLeft(ByteVector.empty){ case (bv, n) => bv ++ chunk2ByteVector(n) })
       .map(_.decodeUtf8)
       .unsafeRunSync() ?= Right(wikiExample)

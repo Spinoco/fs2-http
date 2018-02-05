@@ -7,7 +7,7 @@ import org.scalacheck.Prop._
 import spinoco.protocol.http._
 import spinoco.protocol.http.codec.HttpRequestHeaderCodec
 import spinoco.protocol.http.header._
-import spinoco.protocol.http.header.value.{ContentType, HttpCharset, MediaType}
+import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 
 
 object HttpRequestSpec extends Properties("HttpRequest") {
@@ -22,7 +22,7 @@ object HttpRequestSpec extends Properties("HttpRequest") {
 
 
     HttpRequest.toStream(request, HttpRequestHeaderCodec.defaultCodec)
-    .chunks.runLog.map { _.map(chunk2ByteVector).reduce { _ ++ _ }.decodeUtf8 }
+    .chunks.compile.toVector.map { _.map(chunk2ByteVector).reduce { _ ++ _ }.decodeUtf8 }
     .unsafeRunSync() ?=
     Right(Seq(
       "GET /hello-world.html HTTP/1.1"
@@ -49,16 +49,16 @@ object HttpRequestSpec extends Properties("HttpRequest") {
     .covary[IO]
     .through(HttpRequest.fromStream[IO](4096,HttpRequestHeaderCodec.defaultCodec))
     .flatMap { case (header, body) =>
-      Stream.eval(body.chunks.runLog.map(_.map(chunk2ByteVector).reduce(_ ++ _).decodeUtf8)).map { bodyString =>
+      Stream.eval(body.chunks.compile.toVector.map(_.map(chunk2ByteVector).reduce(_ ++ _).decodeUtf8)).map { bodyString =>
         header -> bodyString
       }
-    }.runLog.unsafeRunSync() ?= Vector(
+    }.compile.toVector.unsafeRunSync() ?= Vector(
       HttpRequestHeader(
         method = HttpMethod.GET
         , path = Uri.Path / "hello-world.html"
         , headers = List(
           Host(HostPort("www.spinoco.com", None))
-          , `Content-Type`(ContentType(MediaType.`text/plain`, Some(HttpCharset.`UTF-8`), None))
+          , `Content-Type`(ContentType.TextContent(MediaType.`text/plain`, Some(MIMECharset.`UTF-8`)))
           , `Content-Length`(11)
         )
         , query  = Uri.Query.empty
