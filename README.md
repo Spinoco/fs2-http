@@ -36,7 +36,7 @@ libraryDependencies += "com.spinoco" %% "fs2-http" % "0.3.0"
 
 for fs2 0.9.x series:
 ```
-libraryDependencies += "com.spinoco" %% "fs2-http" % "0.2.1"
+libraryDependencies += "com.spinoco" %% "fs2-http" % "0.2.2"
 ```
 
 ### Dependencies
