@@ -12,7 +12,7 @@ import fs2.{Stream, _}
 import scodec.bits.ByteVector
 import spinoco.fs2.crypto.io.tcp.TLSSocket
 import spinoco.fs2.interop.scodec.ByteVectorChunk
-import spinoco.protocol.http.{HostPort, HttpScheme}
+import spinoco.protocol.http.{HostPort, HttpScheme, Scheme}
 import spinoco.protocol.http.header.{HttpHeader, `Transfer-Encoding`}
 import spinoco.fs2.http.util.chunk2ByteVector
 
@@ -67,12 +67,13 @@ package object internal {
   }
 
 
-  /** evaluates address from the host port and scheme **/
-  def addressForRequest[F[_]](scheme: HttpScheme.Value, host: HostPort)(implicit F: Async[F]):F[InetSocketAddress] = F.delay {
+  /** evaluates address from the host port and scheme, if the scheme is a custom one, the port selected is 8080 **/
+  def addressForRequest[F[_]](scheme: Scheme, host: HostPort)(implicit F: Async[F]):F[InetSocketAddress] = F.delay {
     val port = host.port.getOrElse {
       scheme match {
         case HttpScheme.HTTPS | HttpScheme.WSS => 443
         case HttpScheme.HTTP | HttpScheme.WS => 80
+        case _ => 8080
       }
     }
 
