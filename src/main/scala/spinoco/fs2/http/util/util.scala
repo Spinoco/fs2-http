@@ -27,7 +27,7 @@ package object util {
       _.pull.unconsChunk flatMap {
         case None =>
           if (rem.size == 0) Pull.done
-          else Pull.outputChunk(ByteVectorChunk(ByteVector.view(rem.toBase64(alphabet).getBytes)))
+          else Pull.output(ByteVectorChunk(ByteVector.view(rem.toBase64(alphabet).getBytes)))
 
         case Some((chunk, tl)) =>
           val n = rem ++ chunk2ByteVector(chunk)
@@ -41,7 +41,7 @@ package object util {
               out(pos) = alphabet.toChar(idx).toByte
               pos = pos + 1
             }
-            Pull.outputChunk(ByteVectorChunk(ByteVector.view(out))) >> go(n.takeRight(pad))(tl)
+            Pull.output(ByteVectorChunk(ByteVector.view(out))) >> go(n.takeRight(pad))(tl)
           } else {
             go(n)(tl)
           }
@@ -93,8 +93,8 @@ package object util {
             if (aligned <= 0 && !term) go(acc)(tl)
             else {
               val (out, rem) = acc.splitAt(aligned)
-              if (term) Pull.outputChunk(ByteVectorChunk(out.toByteVector))
-              else Pull.outputChunk(ByteVectorChunk(out.toByteVector)) >> go(rem)(tl)
+              if (term) Pull.output(ByteVectorChunk(out.toByteVector))
+              else Pull.output(ByteVectorChunk(out.toByteVector)) >> go(rem)(tl)
             }
 
           } catch {

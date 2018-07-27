@@ -1,19 +1,20 @@
 package spinoco.fs2.http
 
 import java.nio.channels.AsynchronousChannelGroup
-import javax.net.ssl.SSLContext
 
-import cats.effect.Effect
+import cats.Applicative
+import javax.net.ssl.SSLContext
+import cats.effect.{Concurrent, ConcurrentEffect, Sync, Timer}
 import fs2._
 import fs2.io.tcp.Socket
 import scodec.{Codec, Decoder, Encoder}
+
 import spinoco.fs2.http.internal.{addressForRequest, liftToSecure, readWithTimeout}
 import spinoco.fs2.http.sse.{SSEDecoder, SSEEncoding}
 import spinoco.fs2.http.websocket.{Frame, WebSocket, WebSocketRequest}
 import spinoco.protocol.http.header._
 import spinoco.protocol.mime.MediaType
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
-
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
@@ -74,17 +75,12 @@ trait HttpClient[F[_]] {
     *                             supplied value, WebSocket will fail.
     *
     */
-  def websocket[I,O](
+  def websocket[I : Decoder, O : Encoder](
      request: WebSocketRequest
      , pipe: Pipe[F, Frame[I], Frame[O]]
      , maxResponseHeaderSize: Int = 4096
      , chunkSize: Int = 32 * 1024
      , maxFrameSize: Int = 1024*1024
-  )(
-   implicit
-    R: Decoder[I]
-    , W: Encoder[O]
-    , S: Scheduler
   ): Stream[F, Option[HttpResponseHeader]]
 
   /**
@@ -94,11 +90,11 @@ trait HttpClient[F[_]] {
     * @param maxResponseHeaderSize    Max size of expected response header
     * @param chunkSize                Max size of the chunk
     */
-  def sse[A](
+  def sse[A : SSEDecoder](
     request: HttpRequest[F]
     , maxResponseHeaderSize: Int = 4096
     , chunkSize: Int = 32 * 1024
-  )(implicit D: SSEDecoder[A]): Stream[F, A]
+  ): Stream[F, A]
 
 }
 
@@ -113,12 +109,12 @@ trait HttpClient[F[_]] {
      * @param sslExecutionContext     Strategy used when communication with SSL (https or wss)
      * @param sslContext      SSL Context to use with SSL Client (https, wss)
      */
-  def apply[F[_]](
+  def apply[F[_] : ConcurrentEffect : Timer](
    requestCodec         : Codec[HttpRequestHeader]
    , responseCodec      : Codec[HttpResponseHeader]
    , sslExecutionContext: => ExecutionContext
    , sslContext         : => SSLContext
-  )(implicit AG: AsynchronousChannelGroup, F: Effect[F], EC: ExecutionContext):F[HttpClient[F]] = F.delay {
+  )(implicit AG: AsynchronousChannelGroup):F[HttpClient[F]] = Sync[F].delay {
     lazy val sslCtx = sslContext
     lazy val sslS = sslExecutionContext
 
@@ -129,26 +125,26 @@ trait HttpClient[F[_]] {
        , maxResponseHeaderSize: Int
        , timeout: Duration
       ): Stream[F, HttpResponse[F]] = {
-        Stream.eval(addressForRequest(request.scheme, request.host)).flatMap { address =>
-        io.tcp.client(address)
+        Stream.eval(addressForRequest[F](request.scheme, request.host)).flatMap { address =>
+        Stream.resource(io.tcp.client[F](address))
         .evalMap { socket =>
-          if (!request.isSecure) F.pure(socket)
-          else liftToSecure(sslS, sslCtx)(socket, true)
+          if (!request.isSecure) Applicative[F].pure(socket)
+          else liftToSecure[F](sslS, sslCtx)(socket, true)
         }
-        .flatMap { impl.request(request, chunkSize, maxResponseHeaderSize, timeout, requestCodec, responseCodec ) }}
+        .flatMap { impl.request[F](request, chunkSize, maxResponseHeaderSize, timeout, requestCodec, responseCodec ) }}
       }
 
-      def websocket[I, O](
+      def websocket[I : Decoder, O : Encoder](
         request: WebSocketRequest
         , pipe: Pipe[F, Frame[I], Frame[O]]
         , maxResponseHeaderSize: Int
         , chunkSize: Int
         , maxFrameSize: Int
-      )(implicit R: Decoder[I], W: Encoder[O], S: Scheduler): Stream[F, Option[HttpResponseHeader]] =
+      ): Stream[F, Option[HttpResponseHeader]] =
         WebSocket.client(request,pipe,maxResponseHeaderSize,chunkSize,maxFrameSize, requestCodec, responseCodec, sslS, sslCtx)
 
 
-      def sse[A](rq: HttpRequest[F], maxResponseHeaderSize: Int, chunkSize: Int)(implicit D: SSEDecoder[A]): Stream[F, A] =
+      def sse[A : SSEDecoder](rq: HttpRequest[F], maxResponseHeaderSize: Int, chunkSize: Int): Stream[F, A] =
         request(rq, chunkSize, maxResponseHeaderSize, Duration.Inf).flatMap { resp =>
           if (resp.header.headers.exists { case `Content-Type`(ct) => ct.mediaType == MediaType.`text/event-stream`  })
             Stream.raiseError(new Throwable(s"Received response is not SSE: $resp"))
@@ -161,21 +157,21 @@ trait HttpClient[F[_]] {
 
    private[http] object impl {
 
-     def request[F[_]](
+     def request[F[_] : Concurrent](
       request: HttpRequest[F]
       , chunkSize: Int
       , maxResponseHeaderSize: Int
       , timeout: Duration
       , requestCodec: Codec[HttpRequestHeader]
       , responseCodec: Codec[HttpResponseHeader]
-     )(socket: Socket[F])(implicit F: Effect[F], EC: ExecutionContext): Stream[F, HttpResponse[F]] = {
+     )(socket: Socket[F]):Stream[F, HttpResponse[F]] = {
        import Stream._
        timeout match {
          case fin: FiniteDuration =>
-           eval(F.delay(System.currentTimeMillis())).flatMap { start =>
+           eval(Sync[F].delay(System.currentTimeMillis())).flatMap { start =>
            HttpRequest.toStream(request, requestCodec).to(socket.writes(Some(fin))).last.onFinalize(socket.endOfOutput).flatMap { _ =>
            eval(async.signalOf[F, Boolean](true)).flatMap { timeoutSignal =>
-           eval(F.delay(System.currentTimeMillis())).flatMap { sent =>
+           eval(Sync[F].delay(System.currentTimeMillis())).flatMap { sent =>
              val remains = fin - (sent - start).millis
              readWithTimeout(socket, remains, timeoutSignal.get, chunkSize)
              .through (HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec))

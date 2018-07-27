@@ -39,11 +39,11 @@ object ChunkedEncoding {
               }
 
             case Right(remains) =>
-              if (remains == bv.size) Pull.outputChunk(ByteVectorChunk(bv)) >> go(Left(ByteVector.empty), tl)
-              else if (remains > bv.size) Pull.outputChunk(ByteVectorChunk(bv)) >> go(Right(remains - bv.size), tl)
+              if (remains == bv.size) Pull.output(ByteVectorChunk(bv)) >> go(Left(ByteVector.empty), tl)
+              else if (remains > bv.size) Pull.output(ByteVectorChunk(bv)) >> go(Right(remains - bv.size), tl)
               else {
                 val (out,next) = bv.splitAt(remains.toInt)
-                Pull.outputChunk(ByteVectorChunk(out)) >> go(Left(ByteVector.empty), Stream.chunk(ByteVectorChunk(next)) ++ tl)
+                Pull.output(ByteVectorChunk(out)) >> go(Left(ByteVector.empty), Stream.chunk(ByteVectorChunk(next)) ++ tl)
               }
           }
 
@@ -64,7 +64,7 @@ object ChunkedEncoding {
       if (bv.isEmpty) Chunk.empty
       else ByteVectorChunk(ByteVector.view(bv.size.toHexString.toUpperCase.getBytes) ++ `\r\n` ++ bv ++ `\r\n` )
     }
-    _.mapChunks { ch => encodeChunk(chunk2ByteVector(ch)).toSegment } ++ Stream.chunk(lastChunk)
+    _.mapChunks { ch => encodeChunk(chunk2ByteVector(ch)) } ++ Stream.chunk(lastChunk)
   }
 
 

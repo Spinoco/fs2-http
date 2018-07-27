@@ -24,8 +24,7 @@ object UtilSpec extends Properties("util"){
   }
 
   property("encodes.base64") = forAll { sample: EncodingSample =>
-    Stream.chunk[Byte](Chunk.bytes(sample.text.getBytes)).chunkLimit(sample.chunkSize).flatMap(Stream.chunk[Byte])
-    .covary[IO]
+    Stream.chunk[IO, Byte](Chunk.bytes(sample.text.getBytes)).chunkLimit(sample.chunkSize).flatMap(Stream.chunk[IO, Byte])
     .through(util.encodeBase64Raw(sample.alphabet))
     .chunks
     .fold(ByteVector.empty){ case (acc, n) => acc ++ chunk2ByteVector(n)}
@@ -38,9 +37,8 @@ object UtilSpec extends Properties("util"){
 
   property("decodes.base64") = forAll { sample: EncodingSample =>
     val encoded = ByteVector.view(sample.text.getBytes).toBase64(sample.alphabet)
-    Stream.chunk[Byte](Chunk.bytes(encoded.getBytes))
-    .covary[IO]
-    .chunkLimit(sample.chunkSize).flatMap(Stream.chunk[Byte])
+    Stream.chunk[IO, Byte](Chunk.bytes(encoded.getBytes))
+    .chunkLimit(sample.chunkSize).flatMap(Stream.chunk[IO, Byte])
     .through(util.decodeBase64Raw(sample.alphabet))
     .chunks
     .fold(ByteVector.empty){ case (acc, n) => acc ++ chunk2ByteVector(n)}
@@ -52,7 +50,7 @@ object UtilSpec extends Properties("util"){
 
   property("encodes.decodes.base64") =  forAll { sample: EncodingSample =>
     val r =
-      Stream.chunk[Byte](Chunk.bytes(sample.text.getBytes)).covary[IO].chunkLimit(sample.chunkSize).flatMap(Stream.chunk[Byte])
+      Stream.chunk[IO, Byte](Chunk.bytes(sample.text.getBytes)).covary[IO].chunkLimit(sample.chunkSize).flatMap(Stream.chunk[IO, Byte])
       .through(util.encodeBase64Raw(sample.alphabet))
       .through(util.decodeBase64Raw(sample.alphabet))
       .chunks

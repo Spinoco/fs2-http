@@ -1,11 +1,12 @@
 package spinoco.fs2.http
 
-import cats.effect.Effect
+import cats.effect.{Concurrent, Effect, Timer}
 import fs2._
 import scodec.{Attempt, Decoder, Encoder}
 import scodec.bits.Bases.Base64Alphabet
 import scodec.bits.{Bases, ByteVector}
 import shapeless.Typeable
+
 import spinoco.fs2.http.body.{BodyDecoder, StreamBodyDecoder}
 import spinoco.fs2.http.routing.MatchResult._
 import spinoco.fs2.http.routing.Matcher.{Eval, Match}
@@ -13,8 +14,6 @@ import spinoco.protocol.http.header._
 import spinoco.protocol.http.{HttpMethod, HttpRequestHeader, HttpStatusCode, Uri}
 import spinoco.fs2.http.util.chunk2ByteVector
 import spinoco.fs2.http.websocket.{Frame, WebSocket}
-
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 
@@ -136,16 +135,10 @@ package object routing {
     * @param maxFrameSize     Maximum size of single websocket frame. If the binary size of single frame is larger than
     *                         supplied value, websocket will fail.
     */
-  def websocket[F[_], I, O](
+  def websocket[F[_] : Concurrent : Timer, I : Decoder, O : Encoder](
     pingInterval: Duration = 30.seconds
     , handshakeTimeout: FiniteDuration = 10.seconds
     , maxFrameSize: Int = 1024*1024
-  )(
-    implicit R: Decoder[I]
-    , W: Encoder[O]
-    , F: Effect[F]
-    , EC: ExecutionContext
-    , S: Scheduler
   ): Match[Nothing, (Pipe[F, Frame[I], Frame[O]]) => Stream[F, HttpResponse[F]]] =
     Match[Nothing, (Pipe[F, Frame[I], Frame[O]]) => Stream[F, HttpResponse[F]]] { (request, body) =>
       Success(

@@ -57,8 +57,8 @@ object SSEEncoding {
           val all = buff ++ chunk2ByteVector(chunk)
           if (all.size < 2) (next through dropInitial(all)).pull.echo
           else {
-            if (all.startsWith(StartBom)) Pull.outputChunk(ByteVectorChunk(all.drop(2))) >> next.pull.echo
-            else Pull.outputChunk(ByteVectorChunk(all)) >> next.pull.echo
+            if (all.startsWith(StartBom)) Pull.output(ByteVectorChunk(all.drop(2))) >> next.pull.echo
+            else Pull.output(ByteVectorChunk(all)) >> next.pull.echo
           }
       }.stream
     }

@@ -3,14 +3,13 @@ package spinoco.fs2.http
 import java.net.InetSocketAddress
 import java.nio.channels.AsynchronousChannelGroup
 
-import cats.effect.Effect
+import cats.effect.{ConcurrentEffect, Sync, Timer}
 import cats.syntax.all._
 import fs2._
 import scodec.Codec
+
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader, HttpStatusCode}
-
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 
@@ -36,7 +35,7 @@ object HttpServer {
     *                                     Request is not suplied if failure happened before request was constructed.
     *
     */
-  def apply[F[_]](
+  def apply[F[_] : ConcurrentEffect : Timer](
     maxConcurrent: Int = Int.MaxValue
     , receiveBufferSize: Int = 256 * 1024
     , maxHeaderSize: Int = 10 *1024
@@ -50,8 +49,6 @@ object HttpServer {
   )(
     implicit
     AG: AsynchronousChannelGroup
-    , EC: ExecutionContext
-    , F: Effect[F]
   ): Stream[F, Unit] = {
     import Stream._
     import internal._
@@ -60,8 +57,8 @@ object HttpServer {
       case _ => (false, 0.millis)
     }
 
-
-    io.tcp.server(bindTo, receiveBufferSize = receiveBufferSize).map { _.flatMap { socket =>
+    io.tcp.server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
+      Stream.resource(resource).flatMap { socket =>
       eval(async.signalOf(initial)).flatMap { timeoutSignal =>
         readWithTimeout[F](socket, readDuration, timeoutSignal.get, receiveBufferSize)
         .through(HttpRequest.fromStream(maxHeaderSize, requestCodec))
@@ -76,7 +73,7 @@ object HttpServer {
           def send(request:Option[HttpRequestHeader], resp: HttpResponse[F]): F[Unit] = {
             HttpResponse.toStream(resp, responseCodec).through(socket.writes()).onFinalize(socket.endOfOutput).compile.drain.attempt flatMap {
               case Left(err) => sendFailure(request, resp, err).compile.drain
-              case Right(()) => F.pure(())
+              case Right(()) => Sync[F].pure(())
             }
           }
 
@@ -87,7 +84,7 @@ object HttpServer {
         }
         .drain
       }
-    }}.join(maxConcurrent)
+    }}.parJoin(maxConcurrent)
 
 
   }

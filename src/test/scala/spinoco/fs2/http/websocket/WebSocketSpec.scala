@@ -38,7 +38,7 @@ object WebSocketSpec extends Properties("WebSocket") {
     def serverEcho: Pipe[IO, Frame[String], Frame[String]] = { in => in }
 
     def clientData: Pipe[IO, Frame[String], Frame[String]] = { inbound =>
-      val output =  Sch.awakeEvery[IO](1.seconds).map { dur => Frame.Text(s" ECHO $dur") }.take(5)
+      val output =  Stream.awakeEvery[IO](1.seconds).map { dur => Frame.Text(s" ECHO $dur") }.take(5)
 
       output merge inbound.take(5).evalMap { in => IO(received = received :+ in)}.drain
     }
@@ -53,7 +53,7 @@ object WebSocketSpec extends Properties("WebSocket") {
       )
 
     val clientStream =
-      Sch.sleep_[IO](3.seconds) ++
+      Stream.sleep_[IO](3.seconds) ++
       WebSocket.client(
         WebSocketRequest.ws("127.0.0.1", 9090, "/")
         , clientData

@@ -3,16 +3,19 @@ package spinoco.fs2.http.websocket
 
 import java.nio.channels.AsynchronousChannelGroup
 import java.util.concurrent.Executors
-import javax.net.ssl.SSLContext
 
-import cats.effect.Effect
+import cats.Applicative
+import javax.net.ssl.SSLContext
+import cats.effect.{Concurrent, ConcurrentEffect, Timer}
 import fs2._
 import fs2.async.mutable.Queue
 import scodec.Attempt.{Failure, Successful}
 import scodec.bits.ByteVector
 import scodec.{Codec, Decoder, Encoder}
+
 import spinoco.fs2.http.HttpResponse
 import fs2.interop.scodec.ByteVectorChunk
+
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 import spinoco.protocol.http.header._
 import spinoco.protocol.http._
@@ -21,7 +24,6 @@ import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 import spinoco.protocol.websocket.{OpCode, WebSocketFrame}
 import spinoco.protocol.websocket.codec.WebSocketFrameCodec
 import spinoco.fs2.http.util.chunk2ByteVector
-
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.util.Random
@@ -44,19 +46,12 @@ object WebSocket {
     * @tparam F
     * @return
     */
-  def server[F[_], I, O](
+  def server[F[_] : Concurrent : Timer, I : Decoder, O : Encoder](
     pipe: Pipe[F, Frame[I], Frame[O]]
     , pingInterval: Duration = 30.seconds
     , handshakeTimeout: FiniteDuration = 10.seconds
     , maxFrameSize: Int = 1024*1024
-  )(header: HttpRequestHeader, input:Stream[F,Byte])(
-    implicit
-    R: Decoder[I]
-    , W: Encoder[O]
-    , F: Effect[F]
-    , EC: ExecutionContext
-    , S: Scheduler
-  ): Stream[F,HttpResponse[F]] = {
+  )(header: HttpRequestHeader, input:Stream[F,Byte]): Stream[F,HttpResponse[F]] = {
     Stream.emit(
       impl.verifyHeaderRequest[F](header).right.map { key =>
         val respHeader = impl.computeHandshakeResponse(header, key)
@@ -87,7 +82,7 @@ object WebSocket {
     * @param responseCodec        Codec to decode HttpResponse Header
     *
     */
-  def client[F[_], I, O](
+  def client[F[_] : ConcurrentEffect : Timer, I : Decoder, O : Encoder](
     request: WebSocketRequest
     , pipe: Pipe[F, Frame[I], Frame[O]]
     , maxHeaderSize: Int = 4096
@@ -97,20 +92,12 @@ object WebSocket {
     , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
     , sslES: => ExecutionContext = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool(spinoco.fs2.http.util.mkThreadFactory("fs2-http-ssl", daemon = true)))
     , sslContext: => SSLContext = { val ctx = SSLContext.getInstance("TLS"); ctx.init(null,null,null); ctx }
-  )(
-    implicit
-    R: Decoder[I]
-    , W: Encoder[O]
-    , AG: AsynchronousChannelGroup
-    , EC: ExecutionContext
-    , F: Effect[F]
-    , S: Scheduler
-  ): Stream[F, Option[HttpResponseHeader]] = {
+  )(implicit AG: AsynchronousChannelGroup): Stream[F, Option[HttpResponseHeader]] = {
     import spinoco.fs2.http.internal._
     import Stream._
-    eval(addressForRequest(if (request.secure) HttpScheme.WSS else HttpScheme.WS, request.hostPort)).flatMap { address =>
-    io.tcp.client(address, receiveBufferSize = receiveBufferSize)
-    .evalMap { socket => if (request.secure) liftToSecure(sslES, sslContext)(socket, true) else F.pure(socket) }
+    eval(addressForRequest[F](if (request.secure) HttpScheme.WSS else HttpScheme.WS, request.hostPort)).flatMap { address =>
+    Stream.resource(io.tcp.client[F](address, receiveBufferSize = receiveBufferSize))
+    .evalMap { socket => if (request.secure) liftToSecure(sslES, sslContext)(socket, true) else Applicative[F].pure(socket) }
     .flatMap { socket =>
       val (header, fingerprint) = impl.createRequestHeaders(request.header)
       requestCodec.encode(header) match {
@@ -217,22 +204,15 @@ object WebSocket {
       *                     by server.
       * @param client2Server When true, this represent client -> server direction, when false this represents reverse direction
       */
-    def webSocketOf[F[_], I, O](
+    def webSocketOf[F[_] : Concurrent : Timer, I : Decoder, O : Encoder](
      pipe: Pipe[F, Frame[I], Frame[O]]
      , pingInterval: Duration
      , maxFrameSize: Int
      , client2Server: Boolean
-    )(
-      implicit
-      R: Decoder[I]
-      , W: Encoder[O]
-      , F: Effect[F]
-      , EC: ExecutionContext
-      , S: Scheduler
     ):Pipe[F, Byte, Byte] = { source: Stream[F, Byte] => Stream.suspend {
       Stream.eval(async.unboundedQueue[F, PingPong]).flatMap { pingPongQ =>
         val metronome: Stream[F, Unit] = pingInterval match {
-          case fin: FiniteDuration => S.awakeEvery[F](fin).map { _ => () }
+          case fin: FiniteDuration =>  Stream.awakeEvery[F](fin).map { _ => () }
           case inf => Stream.empty
         }
         val control = controlStream[F](pingPongQ.dequeue, metronome, maxUnanswered = 3, flag = client2Server)
@@ -410,12 +390,12 @@ object WebSocket {
       * @tparam F
       * @return
       */
-    def controlStream[F[_]](
+    def controlStream[F[_] : Concurrent](
        pingPongs: Stream[F, PingPong]
        , metronome: Stream[F, Unit]
        , maxUnanswered: Int
        , flag: Boolean
-    )(implicit F: Effect[F], EC: ExecutionContext): Stream[F, WebSocketFrame] = {
+    ): Stream[F, WebSocketFrame] = {
       (pingPongs either metronome)
       .mapAccumulate(0) { case (pingsSent, in) => in match {
         case Left(PingPong.Pong) => (0, Stream.empty)

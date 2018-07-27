@@ -251,7 +251,7 @@ object HttpRequest {
           if (request.bodyIsChunked)  request.body through ChunkedEncoding.encode
           else request.body
 
-        Stream.chunk[Byte](ByteVectorChunk(bits.bytes ++ `\r\n\r\n`)) ++ body
+        Stream.chunk[F, Byte](ByteVectorChunk(bits.bytes ++ `\r\n\r\n`)) ++ body
     }
   }
 
@@ -336,7 +336,7 @@ object HttpResponse {
           if (bodyIsChunked(response.header.headers)) response.body through ChunkedEncoding.encode
           else response.body
 
-        Stream.chunk[Byte](ByteVectorChunk(encoded.bytes ++ `\r\n\r\n`)) ++ body
+        Stream.chunk[F, Byte](ByteVectorChunk(encoded.bytes ++ `\r\n\r\n`)) ++ body
     }
 
   }

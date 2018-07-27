@@ -38,7 +38,7 @@ object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
   property("encoded-wiki-example") = secure {
 
 
-    (Stream.chunk[Byte](Chunk.bytes(wikiExample.getBytes)) through ChunkedEncoding.decode(1024))
+    (Stream.chunk[IO, Byte](Chunk.bytes(wikiExample.getBytes)) through ChunkedEncoding.decode(1024))
     .covary[IO]
     .chunks
     .compile.toVector
@@ -57,7 +57,7 @@ object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
         , "pedia"
         , " in\r\n\r\nchunks."
       )
-    ).flatMap(s => Stream.chunk[Byte](Chunk.bytes(s.getBytes)))
+    ).flatMap(s => Stream.chunk[IO, Byte](Chunk.bytes(s.getBytes)))
 
     (chunks through ChunkedEncoding.encode)
       .chunks

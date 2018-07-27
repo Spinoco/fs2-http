@@ -16,7 +16,7 @@ object WebSocketClientApp extends App {
 
 
   def wspipe: Pipe[IO, Frame[String], Frame[String]] = { inbound =>
-    val output =  Sch.awakeEvery[IO](1.second).map { dur => println(s"SENT $dur"); Frame.Text(s" ECHO $dur") }.take(5)
+    val output =  Stream.awakeEvery[IO](1.second).map { dur => println(s"SENT $dur"); Frame.Text(s" ECHO $dur") }.take(5)
     output concurrently inbound.take(5).map { in => println(("RECEIVED ", in)) }
   }
 

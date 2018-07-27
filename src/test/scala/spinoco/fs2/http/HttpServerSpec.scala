@@ -17,6 +17,8 @@ import scala.concurrent.duration._
 object HttpServerSpec extends Properties("HttpServer"){
   import Resources._
 
+  val MaxConcurrency: Int = 10
+
   def echoService(request: HttpRequestHeader, body: Stream[IO,Byte]): Stream[IO,HttpResponse[IO]] = {
     if (request.path != Uri.Path / "echo") Stream.emit(HttpResponse[IO](HttpStatusCode.Ok).withUtf8Body("Hello World")).covary[IO]
     else {
@@ -52,8 +54,8 @@ object HttpServerSpec extends Properties("HttpServer"){
 
     (Stream(
       http.server[IO](new InetSocketAddress("127.0.0.1", 9090))(echoService).drain
-    ).covary[IO] ++ Sch.sleep_[IO](1.second) ++ clients)
-    .join(Int.MaxValue)
+    ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients)
+    .parJoin(MaxConcurrency)
     .take(count)
     .filter { case (idx, success) => success }
     .compile.toVector.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
@@ -73,22 +75,22 @@ object HttpServerSpec extends Properties("HttpServer"){
 
       Stream.eval(client[IO]()).flatMap { httpClient =>
         Stream.range(0,count).unchunk.map { idx =>
-          httpClient.request(request).flatMap (resp =>
+          httpClient.request(request).flatMap { resp =>
             Stream.eval(resp.bodyAsString).map { attempt =>
               val okResult = resp.header.status == HttpStatusCode.Ok
-              attempt.map(_ == "Hello").map(r => idx -> (r && okResult)) .getOrElse(idx -> false )
+              attempt.map(_ == "Hello").map(r => idx -> (r && okResult)).getOrElse(idx -> false)
             }
-          )
+          }
         }}
     }
 
-    ( Sch.sleep_[IO](3.second) ++
+    ( Stream.sleep_[IO](3.second) ++
     (Stream(
       http.server[IO](new InetSocketAddress("127.0.0.1", 9090))(echoService).drain
-    ).covary[IO] ++ Sch.sleep_[IO](1.second) ++ clients).join(Int.MaxValue))
+    ).covary[IO] ++ Stream.sleep_[IO](3.second) ++ clients).parJoin(MaxConcurrency))
     .take(count)
     .filter { case (idx, success) => success }
-    .compile.toVector.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
+    .compile.toVector.unsafeRunTimed(60.seconds).map { _.size } ?= Some(count)
 
   }
 
@@ -101,7 +103,6 @@ object HttpServerSpec extends Properties("HttpServer"){
       val request =
         HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
 
-
       Stream.eval(client[IO]()).flatMap { httpClient =>
       Stream.range(0,count).unchunk.map { idx =>
       httpClient.request(request).map { resp =>
@@ -109,13 +110,13 @@ object HttpServerSpec extends Properties("HttpServer"){
       }}}
     }
 
-    (Sch.sleep_[IO](3.second) ++
+    (Stream.sleep_[IO](3.second) ++
     (Stream(
       http.server[IO](
         new InetSocketAddress("127.0.0.1", 9090)
       , requestFailure = _ => { Stream(HttpResponse[IO](HttpStatusCode.BadRequest)).covary[IO] }
       )(failRouteService).drain
-    ).covary[IO] ++ Sch.sleep_[IO](1.second) ++ clients).join(Int.MaxValue))
+    ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients).parJoin(MaxConcurrency))
     .take(count)
     .filter { case (idx, success) => success }
     .compile.toVector.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
@@ -140,13 +141,13 @@ object HttpServerSpec extends Properties("HttpServer"){
       }
     }
 
-    (Sch.sleep_[IO](3.second) ++
+    (Stream.sleep_[IO](3.second) ++
     (Stream(
       http.server[IO](
         new InetSocketAddress("127.0.0.1", 9090)
         , sendFailure = (_, _, _) => Stream.empty
       )(failingResponse).drain
-    ).covary[IO] ++ Sch.sleep_[IO](1.second) ++ clients).join(Int.MaxValue))
+    ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients).parJoin(MaxConcurrency))
       .take(count)
       .filter { case (idx, success) => success }
       .compile.toVector.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)

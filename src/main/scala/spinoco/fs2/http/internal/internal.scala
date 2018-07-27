@@ -2,19 +2,19 @@ package spinoco.fs2.http
 
 import java.net.InetSocketAddress
 import java.util.concurrent.TimeoutException
-import javax.net.ssl.SSLContext
 
-import cats.effect.Effect
+import javax.net.ssl.SSLContext
+import cats.effect.{Concurrent, Sync, Timer}
 import cats.syntax.all._
 import fs2.Stream._
 import fs2.interop.scodec.ByteVectorChunk
 import fs2.io.tcp.Socket
 import fs2.{Stream, _}
 import scodec.bits.ByteVector
+
 import spinoco.fs2.crypto.io.tcp.TLSSocket
 import spinoco.protocol.http.{HostPort, HttpScheme, Scheme}
 import spinoco.protocol.http.header.{HttpHeader, `Transfer-Encoding`}
-
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.reflect.ClassTag
@@ -72,7 +72,7 @@ package object internal {
 
 
   /** evaluates address from the host port and scheme, if this is a custom scheme we will default to port 8080**/
-  def addressForRequest[F[_]](scheme: Scheme, host: HostPort)(implicit F: Effect[F]):F[InetSocketAddress] = F.delay {
+  def addressForRequest[F[_] : Sync](scheme: Scheme, host: HostPort):F[InetSocketAddress] = Sync[F].delay {
     val port = host.port.getOrElse {
       scheme match {
         case HttpScheme.HTTPS | HttpScheme.WSS => 443
@@ -96,21 +96,21 @@ package object internal {
     * @param shallTimeout   If true, timeout will be applied, if false timeout won't be applied.
     * @param chunkSize      Size of chunk to read up to
     */
-  def readWithTimeout[F[_]](
+  def readWithTimeout[F[_] : Sync](
     socket: Socket[F]
     , timeout: FiniteDuration
     , shallTimeout: F[Boolean]
     , chunkSize: Int
-  )(implicit F: Effect[F]) : Stream[F, Byte] = {
+  ) : Stream[F, Byte] = {
     def go(remains:FiniteDuration) : Stream[F, Byte] = {
       eval(shallTimeout).flatMap { shallTimeout =>
         if (!shallTimeout) socket.reads(chunkSize, None)
         else {
           if (remains <= 0.millis) Stream.raiseError(new TimeoutException())
           else {
-            eval(F.delay(System.currentTimeMillis())).flatMap { start =>
+            eval(Sync[F].delay(System.currentTimeMillis())).flatMap { start =>
             eval(socket.read(chunkSize, Some(remains))).flatMap { read =>
-            eval(F.delay(System.currentTimeMillis())).flatMap { end => read match {
+            eval(Sync[F].delay(System.currentTimeMillis())).flatMap { end => read match {
               case Some(bytes) => Stream.chunk(bytes) ++ go(remains - (end - start).millis)
               case None => Stream.empty
             }}}}
@@ -123,8 +123,8 @@ package object internal {
   }
 
   /** creates a function that lifts supplied socket to secure socket **/
-  def liftToSecure[F[_]](sslES: => ExecutionContext, sslContext: => SSLContext)(socket: Socket[F], clientMode: Boolean)(implicit F: Effect[F], EC: ExecutionContext): F[Socket[F]] = {
-    F.delay {
+  def liftToSecure[F[_] : Concurrent : Timer](sslES: => ExecutionContext, sslContext: => SSLContext)(socket: Socket[F], clientMode: Boolean): F[Socket[F]] = {
+    Sync[F].delay {
       val engine = sslContext.createSSLEngine()
       engine.setUseClientMode(clientMode)
       engine
