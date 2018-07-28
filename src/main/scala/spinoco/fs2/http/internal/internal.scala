@@ -6,8 +6,8 @@ import java.util.concurrent.TimeoutException
 import javax.net.ssl.SSLContext
 import cats.effect.{Concurrent, Sync, Timer}
 import cats.syntax.all._
+import fs2.Chunk.ByteVectorChunk
 import fs2.Stream._
-import fs2.interop.scodec.ByteVectorChunk
 import fs2.io.tcp.Socket
 import fs2.{Stream, _}
 import scodec.bits.ByteVector

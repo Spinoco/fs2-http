@@ -4,12 +4,12 @@ import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.{Executors, ThreadFactory}
 import java.util.concurrent.atomic.AtomicInteger
 
+import fs2.Chunk.ByteVectorChunk
 import fs2._
-import fs2.interop.scodec.ByteVectorChunk
 import scodec.bits.{BitVector, ByteVector}
 import scodec.bits.Bases.{Alphabets, Base64Alphabet}
-import spinoco.protocol.mime.{ContentType, MIMECharset}
 
+import spinoco.protocol.mime.{ContentType, MIMECharset}
 import scala.concurrent.ExecutionContext
 import scala.util.control.NonFatal
 

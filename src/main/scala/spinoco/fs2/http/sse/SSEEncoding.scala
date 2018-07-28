@@ -1,11 +1,11 @@
 package spinoco.fs2.http.sse
 
+import fs2.Chunk.ByteVectorChunk
 import fs2._
 import scodec.Attempt
 import scodec.bits.ByteVector
-import fs2.interop.scodec.ByteVectorChunk
-import spinoco.fs2.http.util.chunk2ByteVector
 
+import spinoco.fs2.http.util.chunk2ByteVector
 import scala.util.Try
 import scala.concurrent.duration._
 

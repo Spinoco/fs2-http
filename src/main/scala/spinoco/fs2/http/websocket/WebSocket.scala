@@ -7,6 +7,7 @@ import java.util.concurrent.Executors
 import cats.Applicative
 import javax.net.ssl.SSLContext
 import cats.effect.{Concurrent, ConcurrentEffect, Timer}
+import fs2.Chunk.ByteVectorChunk
 import fs2._
 import fs2.async.mutable.Queue
 import scodec.Attempt.{Failure, Successful}
@@ -14,8 +15,6 @@ import scodec.bits.ByteVector
 import scodec.{Codec, Decoder, Encoder}
 
 import spinoco.fs2.http.HttpResponse
-import fs2.interop.scodec.ByteVectorChunk
-
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 import spinoco.protocol.http.header._
 import spinoco.protocol.http._

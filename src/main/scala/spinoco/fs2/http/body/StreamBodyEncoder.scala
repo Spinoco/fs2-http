@@ -1,10 +1,11 @@
 package spinoco.fs2.http.body
 
 import cats.MonadError
+import fs2.Chunk.ByteVectorChunk
 import fs2._
 import scodec.Attempt.{Failure, Successful}
 import scodec.bits.ByteVector
-import fs2.interop.scodec.ByteVectorChunk
+
 import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 
 

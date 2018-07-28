@@ -1,8 +1,9 @@
 package spinoco.fs2.http.internal
 
+import fs2.Chunk.ByteVectorChunk
 import fs2._
-import fs2.interop.scodec.ByteVectorChunk
 import scodec.bits.ByteVector
+
 import spinoco.fs2.http.util.chunk2ByteVector
 
 /**

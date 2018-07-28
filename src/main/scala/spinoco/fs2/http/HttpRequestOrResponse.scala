@@ -2,15 +2,17 @@ package spinoco.fs2.http
 
 
 import cats.effect.Sync
+import fs2.Chunk.ByteVectorChunk
 import fs2.{Stream, _}
 import scodec.Attempt.{Failure, Successful}
 import scodec.{Attempt, Codec, Err}
+
 import spinoco.fs2.http.body.{BodyDecoder, BodyEncoder, StreamBodyEncoder}
-import fs2.interop.scodec.ByteVectorChunk
 import spinoco.protocol.http._
 import header._
 import spinoco.protocol.mime.{ContentType, MediaType}
 import scodec.bits.ByteVector
+
 import spinoco.fs2.http.sse.{SSEEncoder, SSEEncoding}
 
 

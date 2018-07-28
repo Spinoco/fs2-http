@@ -1,12 +1,13 @@
 package spinoco.fs2.http.sse
 
 import cats.effect.IO
+import fs2.Chunk.ByteVectorChunk
 import fs2._
 import org.scalacheck.Properties
 import org.scalacheck.Prop._
 import scodec.bits.ByteVector
+
 import spinoco.fs2.http.sse.SSEMessage.SSEData
-import fs2.interop.scodec.ByteVectorChunk
 import spinoco.fs2.http.util.chunk2ByteVector
 
 object SSEEncodingSpec extends Properties("SSEEncoding") {
