@@ -35,7 +35,7 @@ lazy val commonSettings = Seq(
      , "com.spinoco" %% "protocol-websocket" % "0.3.15"
      , "co.fs2" %% "fs2-core" % "1.0.0-M2"
      , "co.fs2" %% "fs2-io" % "1.0.0-M2"
-     , "com.spinoco" %% "fs2-crypto" % "0.3.0-M2"
+     , "com.spinoco" %% "fs2-crypto" % "0.4.0-M2"
    ),
    scmInfo := Some(ScmInfo(url("https://github.com/Spinoco/fs2-http"), "git@github.com:Spinoco/fs2-http.git")),
    homepage := None,
