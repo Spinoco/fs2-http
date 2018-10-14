@@ -6,10 +6,11 @@ import java.nio.channels.AsynchronousChannelGroup
 import cats.effect.{ConcurrentEffect, Sync, Timer}
 import cats.syntax.all._
 import fs2._
+import fs2.concurrent.SignallingRef
 import scodec.Codec
-
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader, HttpStatusCode}
+
 import scala.concurrent.duration._
 
 
@@ -59,7 +60,7 @@ object HttpServer {
 
     io.tcp.server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
       Stream.resource(resource).flatMap { socket =>
-      eval(async.signalOf(initial)).flatMap { timeoutSignal =>
+      eval(SignallingRef(initial)).flatMap { timeoutSignal =>
         readWithTimeout[F](socket, readDuration, timeoutSignal.get, receiveBufferSize)
         .through(HttpRequest.fromStream(maxHeaderSize, requestCodec))
         .flatMap { case (request, body) =>
@@ -90,7 +91,7 @@ object HttpServer {
   }
 
   /** default handler for parsing request errors **/
-  def handleRequestParseError[F[_]](err: Throwable): Stream[F, HttpResponse[F]] = {
+  def handleRequestParseError[F[_] : RaiseThrowable](err: Throwable): Stream[F, HttpResponse[F]] = {
     Stream.suspend {
       err.printStackTrace()
       Stream.emit(HttpResponse[F](HttpStatusCode.BadRequest))

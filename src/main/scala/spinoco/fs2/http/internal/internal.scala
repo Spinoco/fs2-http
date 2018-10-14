@@ -4,17 +4,17 @@ import java.net.InetSocketAddress
 import java.util.concurrent.TimeoutException
 
 import javax.net.ssl.SSLContext
-import cats.effect.{Concurrent, Sync, Timer}
+import cats.effect.{Concurrent, ContextShift, Sync}
 import cats.syntax.all._
 import fs2.Chunk.ByteVectorChunk
 import fs2.Stream._
 import fs2.io.tcp.Socket
 import fs2.{Stream, _}
 import scodec.bits.ByteVector
-
 import spinoco.fs2.crypto.io.tcp.TLSSocket
 import spinoco.protocol.http.{HostPort, HttpScheme, Scheme}
 import spinoco.protocol.http.header.{HttpHeader, `Transfer-Encoding`}
+
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.reflect.ClassTag
@@ -45,9 +45,9 @@ package object internal {
   /**
     * From the stream of bytes this extracts Http Header and body part.
     */
-  def httpHeaderAndBody[F[_]](maxHeaderSize: Int): Pipe[F, Byte, (ByteVector, Stream[F, Byte])] = {
+  def httpHeaderAndBody[F[_] : RaiseThrowable](maxHeaderSize: Int): Pipe[F, Byte, (ByteVector, Stream[F, Byte])] = {
     def go(buff: ByteVector, in: Stream[F, Byte]): Pull[F, (ByteVector, Stream[F, Byte]), Unit] = {
-      in.pull.unconsChunk flatMap {
+      in.pull.uncons flatMap {
         case None =>
           Pull.raiseError(new Throwable(s"Incomplete Header received (sz = ${buff.size}): ${buff.decodeUtf8}"))
         case Some((chunk, tl)) =>
@@ -123,13 +123,13 @@ package object internal {
   }
 
   /** creates a function that lifts supplied socket to secure socket **/
-  def liftToSecure[F[_] : Concurrent : Timer](sslES: => ExecutionContext, sslContext: => SSLContext)(socket: Socket[F], clientMode: Boolean): F[Socket[F]] = {
+  def liftToSecure[F[_] : Concurrent : ContextShift](sslES: => ExecutionContext, sslContext: => SSLContext)(socket: Socket[F], clientMode: Boolean): F[Socket[F]] = {
     Sync[F].delay {
       val engine = sslContext.createSSLEngine()
       engine.setUseClientMode(clientMode)
       engine
     } flatMap {
-      TLSSocket(socket, _, sslES)
+      TLSSocket.instance(socket, _, sslES)
       .map(identity) //This is here just to make scala understand types properly
     }
   }

@@ -15,11 +15,13 @@ sealed trait StreamBodyDecoder[F[_], A] {
 
 object StreamBodyDecoder {
 
-  def apply[F[_], A](f: ContentType => Option[Pipe[F, Byte, A]]): StreamBodyDecoder[F, A] =
+  @inline def apply[F[_], A](implicit instance: StreamBodyDecoder[F, A]): StreamBodyDecoder[F, A] = instance
+
+  def instance[F[_], A](f: ContentType => Option[Pipe[F, Byte, A]]): StreamBodyDecoder[F, A] =
     new StreamBodyDecoder[F, A] { def decode(ct: ContentType): Option[Pipe[F, Byte, A]] = f(ct) }
 
   def utf8StringDecoder[F[_]]: StreamBodyDecoder[F, String] =
-    StreamBodyDecoder { ct =>
+    StreamBodyDecoder.instance { ct =>
       if (ct.mediaType.isText && util.getCharset(ct).contains(MIMECharset.`UTF-8`)) Some(text.utf8Decode[F])
       else None
     }

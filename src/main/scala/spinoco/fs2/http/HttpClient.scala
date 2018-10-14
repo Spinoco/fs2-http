@@ -1,20 +1,22 @@
 package spinoco.fs2.http
 
 import java.nio.channels.AsynchronousChannelGroup
+import java.util.concurrent.TimeUnit
 
 import cats.Applicative
 import javax.net.ssl.SSLContext
-import cats.effect.{Concurrent, ConcurrentEffect, Sync, Timer}
+import cats.effect._
 import fs2._
+import fs2.concurrent.SignallingRef
 import fs2.io.tcp.Socket
 import scodec.{Codec, Decoder, Encoder}
-
 import spinoco.fs2.http.internal.{addressForRequest, liftToSecure, readWithTimeout}
 import spinoco.fs2.http.sse.{SSEDecoder, SSEEncoding}
 import spinoco.fs2.http.websocket.{Frame, WebSocket, WebSocketRequest}
 import spinoco.protocol.http.header._
 import spinoco.protocol.mime.MediaType
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
+
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
@@ -109,7 +111,7 @@ trait HttpClient[F[_]] {
      * @param sslExecutionContext     Strategy used when communication with SSL (https or wss)
      * @param sslContext      SSL Context to use with SSL Client (https, wss)
      */
-  def apply[F[_] : ConcurrentEffect : Timer](
+  def apply[F[_] : ConcurrentEffect : ContextShift : Timer](
    requestCodec         : Codec[HttpRequestHeader]
    , responseCodec      : Codec[HttpResponseHeader]
    , sslExecutionContext: => ExecutionContext
@@ -164,14 +166,14 @@ trait HttpClient[F[_]] {
       , timeout: Duration
       , requestCodec: Codec[HttpRequestHeader]
       , responseCodec: Codec[HttpResponseHeader]
-     )(socket: Socket[F]):Stream[F, HttpResponse[F]] = {
+     )(socket: Socket[F])(implicit clock: Clock[F]):Stream[F, HttpResponse[F]] = {
        import Stream._
        timeout match {
          case fin: FiniteDuration =>
-           eval(Sync[F].delay(System.currentTimeMillis())).flatMap { start =>
+           eval(clock.realTime(TimeUnit.MILLISECONDS)).flatMap { start =>
            HttpRequest.toStream(request, requestCodec).to(socket.writes(Some(fin))).last.onFinalize(socket.endOfOutput).flatMap { _ =>
-           eval(async.signalOf[F, Boolean](true)).flatMap { timeoutSignal =>
-           eval(Sync[F].delay(System.currentTimeMillis())).flatMap { sent =>
+           eval(SignallingRef[F, Boolean](true)).flatMap { timeoutSignal =>
+           eval(clock.realTime(TimeUnit.MILLISECONDS)).flatMap { sent =>
              val remains = fin - (sent - start).millis
              readWithTimeout(socket, remains, timeoutSignal.get, chunkSize)
              .through (HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec))

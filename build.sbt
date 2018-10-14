@@ -9,8 +9,8 @@ lazy val contributors = Seq(
 
 lazy val commonSettings = Seq(
    organization := "com.spinoco",
-   scalaVersion := "2.11.8",
-   crossScalaVersions := Seq("2.11.8", "2.12.1"),
+   scalaVersion := "2.12.6",
+   crossScalaVersions := Seq("2.11.12", "2.12.6"),
    scalacOptions ++= Seq(
     "-feature",
     "-deprecation",
@@ -27,15 +27,14 @@ lazy val commonSettings = Seq(
    scalacOptions in (Test, console) <<= (scalacOptions in (Compile, console)),
    libraryDependencies ++= Seq(
      compilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
-     , "com.github.mpilquist" %% "simulacrum" % "0.13.0"
      , "org.scodec" %% "scodec-bits" % "1.1.4"
      , "org.scodec" %% "scodec-core" % "1.10.3"
-     , "org.scalacheck" %% "scalacheck" % "1.13.4" % "test"
      , "com.spinoco" %% "protocol-http" % "0.3.15"
      , "com.spinoco" %% "protocol-websocket" % "0.3.15"
-     , "co.fs2" %% "fs2-core" % "1.0.0-M2"
-     , "co.fs2" %% "fs2-io" % "1.0.0-M2"
-     , "com.spinoco" %% "fs2-crypto" % "0.4.0-M2"
+     , "co.fs2" %% "fs2-core" % "1.0.0"
+     , "co.fs2" %% "fs2-io" % "1.0.0"
+     , "com.spinoco" %% "fs2-crypto" % "0.4.0"
+     , "org.scalacheck" %% "scalacheck" % "1.13.4" % "test"
    ),
    scmInfo := Some(ScmInfo(url("https://github.com/Spinoco/fs2-http"), "git@github.com:Spinoco/fs2-http.git")),
    homepage := None,

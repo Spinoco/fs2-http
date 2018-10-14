@@ -46,7 +46,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
   protected def body: Stream[F, Byte]
 
   /** encodes body `A` given BodyEncoder exists **/
-  def withBody[A](a: A)(implicit W: BodyEncoder[A]): Self = {
+  def withBody[A](a: A)(implicit W: BodyEncoder[A], ev: RaiseThrowable[F]): Self = {
     W.encode(a) match {
       case Failure(err) => updateBody(body = Stream.raiseError(new Throwable(s"failed to encode $a: $err")))
       case Successful(bytes) =>
@@ -62,8 +62,8 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
   }
 
   /** encodes body as utf8 string **/
-  def withUtf8Body(s: String): Self =
-    withBody(s)(BodyEncoder.utf8String)
+  def withUtf8Body(s: String)(implicit ev: RaiseThrowable[F]): Self =
+    withBody(s)(BodyEncoder.utf8String, ev)
 
   /** Decodes body with supplied decoder of `A` **/
   def bodyAs[A](implicit D: BodyDecoder[A], F: Sync[F]): F[Attempt[A]] = {
@@ -161,8 +161,8 @@ final case class HttpRequest[F[_]](
     * That means instead of passing query as part of request, they are encoded as utf8 body.
     * @return
     */
-  def withQueryBodyEncoded(q:Uri.Query): Self =
-    withBody(q)(BodyEncoder.`x-www-form-urlencoded`)
+  def withQueryBodyEncoded(q:Uri.Query)(implicit ev: RaiseThrowable[F]): Self =
+    withBody(q)(BodyEncoder.`x-www-form-urlencoded`, ev)
 
   def bodyAsQuery(implicit F: Sync[F]):F[Attempt[Uri.Query]] =
     bodyAs[Uri.Query](BodyDecoder.`x-www-form-urlencoded`, F)
@@ -190,10 +190,10 @@ object HttpRequest {
       )
       , body = Stream.empty)
 
-  def post[F[_], A](uri: Uri, a: A)(implicit E: BodyEncoder[A]): HttpRequest[F] =
+  def post[F[_] : RaiseThrowable, A](uri: Uri, a: A)(implicit E: BodyEncoder[A]): HttpRequest[F] =
     get(uri).withMethod(HttpMethod.POST).withBody(a)
 
-  def put[F[_], A](uri: Uri, a: A)(implicit E: BodyEncoder[A]): HttpRequest[F] =
+  def put[F[_] : RaiseThrowable, A](uri: Uri, a: A)(implicit E: BodyEncoder[A]): HttpRequest[F] =
     get(uri).withMethod(HttpMethod.PUT).withBody(a)
 
   def delete[F[_]](uri: Uri): HttpRequest[F] =
@@ -210,7 +210,7 @@ object HttpRequest {
     * @tparam F
     * @return
     */
-  def fromStream[F[_]](
+  def fromStream[F[_] : RaiseThrowable](
     maxHeaderSize: Int
     , headerCodec: Codec[HttpRequestHeader]
   ): Pipe[F, Byte, (HttpRequestHeader, Stream[F, Byte])] = {
@@ -240,7 +240,7 @@ object HttpRequest {
     * @param request        request to convert to stream
     * @param headerCodec    Codec to convert the header to bytes
     */
-  def toStream[F[_]](
+  def toStream[F[_] : RaiseThrowable](
     request: HttpRequest[F]
     , headerCodec: Codec[HttpRequestHeader]
   ): Stream[F, Byte] = Stream.suspend {
@@ -280,7 +280,7 @@ final case class HttpResponse[F[_]](
     self.copy(header= self.header.copy(headers = headers))
 
   /** encodes supplied stream of `A` as SSE stream in body **/
-  def sseBody[A](in: Stream[F, A])(implicit E: SSEEncoder[A]): Self =
+  def sseBody[A](in: Stream[F, A])(implicit E: SSEEncoder[A], ev: RaiseThrowable[F]): Self =
      self
      .updateBody(in through SSEEncoding.encodeA[F, A])
      .updateHeaders(withHeaders(internal.swapHeader(`Content-Type`(ContentType.TextContent(MediaType.`text/event-stream`, None)))))
@@ -301,7 +301,7 @@ object HttpResponse {
   /**
     * Decodes stream of bytes as HttpResponse.
     */
-  def fromStream[F[_]](
+  def fromStream[F[_] : RaiseThrowable](
     maxHeaderSize: Int
     , responseCodec: Codec[HttpResponseHeader]
   ): Pipe[F,Byte, HttpResponse[F]] = {
@@ -325,7 +325,7 @@ object HttpResponse {
 
 
   /** Encodes response to stream of bytes **/
-  def toStream[F[_]](
+  def toStream[F[_] : RaiseThrowable](
     response: HttpResponse[F]
     , headerCodec: Codec[HttpResponseHeader]
   ): Stream[F, Byte] = Stream.suspend {
