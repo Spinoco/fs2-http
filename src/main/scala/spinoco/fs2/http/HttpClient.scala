@@ -151,7 +151,7 @@ trait HttpClient[F[_]] {
           if (resp.header.headers.exists { _ match {
               case `Content-Type`(ct) => ct.mediaType == MediaType.`text/event-stream`
               case _ => false
-            })
+            }})
             resp.body through SSEEncoding.decodeA[F, A]
           else
             Stream.raiseError(new Throwable(s"Received response is not SSE: $resp"))
