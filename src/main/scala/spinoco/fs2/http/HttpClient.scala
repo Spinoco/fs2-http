@@ -148,10 +148,13 @@ trait HttpClient[F[_]] {
 
       def sse[A : SSEDecoder](rq: HttpRequest[F], maxResponseHeaderSize: Int, chunkSize: Int): Stream[F, A] =
         request(rq, chunkSize, maxResponseHeaderSize, Duration.Inf).flatMap { resp =>
-          if (resp.header.headers.exists { case `Content-Type`(ct) => ct.mediaType == MediaType.`text/event-stream`  })
-            Stream.raiseError(new Throwable(s"Received response is not SSE: $resp"))
-          else
+          if (resp.header.headers.exists { 
+              case `Content-Type`(ct) => ct.mediaType == MediaType.`text/event-stream`
+              case _ => false
+            })
             resp.body through SSEEncoding.decodeA[F, A]
+          else
+            Stream.raiseError(new Throwable(s"Received response is not SSE: $resp"))
         }
     }
   }
