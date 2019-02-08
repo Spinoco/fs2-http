@@ -105,8 +105,7 @@ fs2-http has support for websocket clients (RFC 6455). A websocket client is bui
 ```
 def wsPipe: Pipe[IO, Frame[String], Frame[String]] = { inbound =>
   val output =  time.awakeEvery[IO](1.second).map { dur => println(s"SENT $dur"); Frame.Text(s" ECHO $dur") }.take(5)
-  inbound.take(5).map { in => println(("RECEIVED ", in)) }
-  .mergeDrainL(output)
+  output.concurrently(inbound.take(5).map { in => println(("RECEIVED ", in)) })
 }
 
 http.client[IO]().flatMap { client =>
