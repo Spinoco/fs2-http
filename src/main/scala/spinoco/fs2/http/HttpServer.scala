@@ -3,7 +3,7 @@ package spinoco.fs2.http
 import java.net.InetSocketAddress
 import java.nio.channels.AsynchronousChannelGroup
 
-import cats.effect.{ConcurrentEffect, Sync, Timer}
+import cats.effect.{ConcurrentEffect, ContextShift, Sync, Timer}
 import cats.syntax.all._
 import fs2._
 import fs2.concurrent.SignallingRef
@@ -36,7 +36,7 @@ object HttpServer {
     *                                     Request is not suplied if failure happened before request was constructed.
     *
     */
-  def apply[F[_] : ConcurrentEffect : Timer](
+  def apply[F[_] : ConcurrentEffect : ContextShift : Timer](
     maxConcurrent: Int = Int.MaxValue
     , receiveBufferSize: Int = 256 * 1024
     , maxHeaderSize: Int = 10 *1024
@@ -58,7 +58,7 @@ object HttpServer {
       case _ => (false, 0.millis)
     }
 
-    io.tcp.server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
+    io.tcp.Socket.server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
       Stream.resource(resource).flatMap { socket =>
       eval(SignallingRef(initial)).flatMap { timeoutSignal =>
         readWithTimeout[F](socket, readDuration, timeoutSignal.get, receiveBufferSize)

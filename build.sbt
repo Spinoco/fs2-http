@@ -26,15 +26,15 @@ lazy val commonSettings = Seq(
    scalacOptions in (Compile, console) ~= {_.filterNot("-Ywarn-unused-import" == _)},
    scalacOptions in (Test, console) := (scalacOptions in (Compile, console)).value,
    libraryDependencies ++= Seq(
-     compilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
-     , "org.scodec" %% "scodec-bits" % "1.1.4"
-     , "org.scodec" %% "scodec-core" % "1.10.3"
-     , "com.spinoco" %% "protocol-http" % "0.3.15"
-     , "com.spinoco" %% "protocol-websocket" % "0.3.15"
-     , "co.fs2" %% "fs2-core" % "1.0.0"
-     , "co.fs2" %% "fs2-io" % "1.0.0"
+     compilerPlugin("org.scalamacros" % "paradise" % "2.1.1" cross CrossVersion.full)
+     , "org.scodec" %% "scodec-bits" % "1.1.12"
+     , "org.scodec" %% "scodec-core" % "1.11.4"
+     , "com.spinoco" %% "protocol-http" % "0.3.17"
+     , "com.spinoco" %% "protocol-websocket" % "0.3.17"
+     , "co.fs2" %% "fs2-core" % "1.0.5"
+     , "co.fs2" %% "fs2-io" % "1.0.5"
      , "com.spinoco" %% "fs2-crypto" % "0.4.0"
-     , "org.scalacheck" %% "scalacheck" % "1.13.4" % "test"
+     , "org.scalacheck" %% "scalacheck" % "1.14.0" % Test
    ),
    scmInfo := Some(ScmInfo(url("https://github.com/Spinoco/fs2-http"), "git@github.com:Spinoco/fs2-http.git")),
    homepage := None,
