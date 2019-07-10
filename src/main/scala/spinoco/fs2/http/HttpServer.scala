@@ -19,7 +19,7 @@ object HttpServer {
   /**
     * Creates simple http server,
     *
-    * Serve will run after the resulting stream is run.
+    * Server will run after the resulting stream is run.
     *
     * @param bindTo                       Address and port where to bind server to
     * @param maxConcurrent                Maximum requests to process concurrently
