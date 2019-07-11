@@ -13,6 +13,7 @@ import header._
 import spinoco.protocol.mime.{ContentType, MediaType}
 import scodec.bits.ByteVector
 
+import spinoco.fs2.http.internal
 import spinoco.fs2.http.sse.{SSEEncoder, SSEEncoding}
 
 

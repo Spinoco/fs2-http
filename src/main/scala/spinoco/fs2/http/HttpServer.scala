@@ -1,12 +1,12 @@
 package spinoco.fs2.http
 
 import java.net.InetSocketAddress
-import java.nio.channels.AsynchronousChannelGroup
 
 import cats.effect.{ConcurrentEffect, ContextShift, Sync, Timer}
 import cats.syntax.all._
 import fs2._
 import fs2.concurrent.SignallingRef
+import fs2.io.tcp.SocketGroup
 import scodec.Codec
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader, HttpStatusCode}
@@ -49,16 +49,16 @@ object HttpServer {
     , sendFailure: (Option[HttpRequestHeader], HttpResponse[F], Throwable) => Stream[F, Nothing]
   )(
     implicit
-    AG: AsynchronousChannelGroup
+    SG: SocketGroup
   ): Stream[F, Unit] = {
     import Stream._
-    import internal._
+    import spinoco.fs2.http.internal._
     val (initial, readDuration) = requestHeaderReceiveTimeout match {
       case fin: FiniteDuration => (true, fin)
       case _ => (false, 0.millis)
     }
 
-    io.tcp.Socket.server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
+    SG.server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
       Stream.resource(resource).flatMap { socket =>
       eval(SignallingRef(initial)).flatMap { timeoutSignal =>
         readWithTimeout[F](socket, readDuration, timeoutSignal.get, receiveBufferSize)

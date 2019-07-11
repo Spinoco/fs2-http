@@ -1,6 +1,5 @@
 package spinoco.fs2.http
 
-import java.nio.channels.AsynchronousChannelGroup
 import java.util.concurrent.TimeUnit
 
 import cats.Applicative
@@ -8,7 +7,7 @@ import javax.net.ssl.SSLContext
 import cats.effect._
 import fs2._
 import fs2.concurrent.SignallingRef
-import fs2.io.tcp.Socket
+import fs2.io.tcp.{Socket, SocketGroup}
 import scodec.{Codec, Decoder, Encoder}
 import spinoco.fs2.http.internal.{addressForRequest, clientLiftToSecure, readWithTimeout}
 import spinoco.fs2.http.sse.{SSEDecoder, SSEEncoding}
@@ -116,7 +115,7 @@ trait HttpClient[F[_]] {
    , responseCodec      : Codec[HttpResponseHeader]
    , sslExecutionContext: => ExecutionContext
    , sslContext         : => SSLContext
-  )(implicit AG: AsynchronousChannelGroup):F[HttpClient[F]] = Sync[F].delay {
+  )(implicit SG: SocketGroup):F[HttpClient[F]] = Sync[F].delay {
     lazy val sslCtx = sslContext
     lazy val sslS = sslExecutionContext
 
@@ -128,7 +127,7 @@ trait HttpClient[F[_]] {
        , timeout: Duration
       ): Stream[F, HttpResponse[F]] = {
         Stream.eval(addressForRequest[F](request.scheme, request.host)).flatMap { address =>
-        Stream.resource(Socket.client[F](address))
+        Stream.resource(SG.client[F](address))
         .evalMap { socket =>
           if (!request.isSecure) Applicative[F].pure(socket)
           else clientLiftToSecure[F](sslS, sslCtx)(socket, request.host)
