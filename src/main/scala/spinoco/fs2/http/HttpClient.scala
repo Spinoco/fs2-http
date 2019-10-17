@@ -9,7 +9,7 @@ import fs2._
 import fs2.io.tcp.Socket
 import scodec.{Codec, Decoder, Encoder}
 
-import spinoco.fs2.http.internal.{addressForRequest, liftToSecure, readWithTimeout}
+import spinoco.fs2.http.internal.{addressForRequest, clientLiftToSecure, readWithTimeout}
 import spinoco.fs2.http.sse.{SSEDecoder, SSEEncoding}
 import spinoco.fs2.http.websocket.{Frame, WebSocket, WebSocketRequest}
 import spinoco.protocol.http.header._
@@ -129,7 +129,7 @@ trait HttpClient[F[_]] {
         Stream.resource(io.tcp.client[F](address))
         .evalMap { socket =>
           if (!request.isSecure) Applicative[F].pure(socket)
-          else liftToSecure[F](sslS, sslCtx)(socket, true)
+          else clientLiftToSecure[F](sslS, sslCtx)(socket, request.host)
         }
         .flatMap { impl.request[F](request, chunkSize, maxResponseHeaderSize, timeout, requestCodec, responseCodec ) }}
       }

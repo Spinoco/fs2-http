@@ -5,6 +5,7 @@ import java.util.concurrent.TimeoutException
 
 import javax.net.ssl.SSLContext
 import cats.effect.{Concurrent, Sync, Timer}
+import javax.net.ssl.{SNIHostName, SNIServerName, SSLContext}
 import cats.syntax.all._
 import fs2.Chunk.ByteVectorChunk
 import fs2.Stream._
@@ -123,10 +124,14 @@ package object internal {
   }
 
   /** creates a function that lifts supplied socket to secure socket **/
-  def liftToSecure[F[_] : Concurrent : Timer](sslES: => ExecutionContext, sslContext: => SSLContext)(socket: Socket[F], clientMode: Boolean): F[Socket[F]] = {
+  def clientLiftToSecure[F[_] : Concurrent : Timer](sslES: => ExecutionContext, sslContext: => SSLContext)(socket: Socket[F], server: HostPort): F[Socket[F]] = {
+    import collection.JavaConverters._
     Sync[F].delay {
-      val engine = sslContext.createSSLEngine()
-      engine.setUseClientMode(clientMode)
+      val engine = sslContext.createSSLEngine(server.host, server.port.getOrElse(443))
+      val sslParams = engine.getSSLParameters
+      sslParams.setServerNames(List[SNIServerName](new SNIHostName(server.host)).asJava)
+      engine.setSSLParameters(sslParams)
+      engine.setUseClientMode(true)
       engine
     } flatMap {
       TLSSocket(socket, _, sslES)
