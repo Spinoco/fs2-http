@@ -24,7 +24,6 @@ lazy val commonSettings = Seq(
     "-Ywarn-unused-import"
    ),
    scalacOptions in (Compile, console) ~= {_.filterNot("-Ywarn-unused-import" == _)},
-   scalacOptions in (Test, console) <<= (scalacOptions in (Compile, console)),
    libraryDependencies ++= Seq(
      compilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
      , "com.github.mpilquist" %% "simulacrum" % "0.13.0"
