@@ -128,10 +128,10 @@ package object internal {
     import collection.JavaConverters._
     Sync[F].delay {
       val engine = sslContext.createSSLEngine(server.host, server.port.getOrElse(443))
+      engine.setUseClientMode(true)
       val sslParams = engine.getSSLParameters
       sslParams.setServerNames(List[SNIServerName](new SNIHostName(server.host)).asJava)
       engine.setSSLParameters(sslParams)
-      engine.setUseClientMode(true)
       engine
     } flatMap {
       TLSSocket(socket, _, sslES)
