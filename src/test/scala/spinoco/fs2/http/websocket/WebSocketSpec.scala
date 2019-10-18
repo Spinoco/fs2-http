@@ -40,7 +40,7 @@ object WebSocketSpec extends Properties("WebSocket") {
     def clientData: Pipe[IO, Frame[String], Frame[String]] = { inbound =>
       val output =  Stream.awakeEvery[IO](1.seconds).map { dur => Frame.Text(s" ECHO $dur") }.take(5)
 
-      output merge inbound.take(5).evalMap { in => IO(received = received :+ in)}.drain
+      output merge inbound.take(5).evalMap { in => IO { received = received :+ in }}.drain
     }
 
     val serverStream =
