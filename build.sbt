@@ -1,4 +1,4 @@
-import com.typesafe.sbt.pgp.PgpKeys.publishSigned
+
 
 val ReleaseTag = """^release/([\d\.]+a?)$""".r
 
@@ -105,8 +105,7 @@ lazy val publishingSettings = Seq(
 )
 
 lazy val releaseSettings = Seq(
-  releaseCrossBuild := true,
-  releasePublishArtifactsAction := PgpKeys.publishSigned.value
+  releaseCrossBuild := true
 )
 
 lazy val `fs2-http`=
