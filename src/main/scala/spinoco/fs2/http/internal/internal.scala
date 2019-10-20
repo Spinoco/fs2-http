@@ -106,7 +106,7 @@ package object internal {
       eval(shallTimeout).flatMap { shallTimeout =>
         if (!shallTimeout) socket.reads(chunkSize, None)
         else {
-          if (remains <= 0.millis) Stream.raiseError(new TimeoutException())
+          if (remains <= 0.millis) Stream.raiseError[F](new TimeoutException())
           else {
             eval(Sync[F].delay(System.currentTimeMillis())).flatMap { start =>
             eval(socket.read(chunkSize, Some(remains))).flatMap { read =>

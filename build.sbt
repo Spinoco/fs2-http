@@ -9,33 +9,21 @@ lazy val contributors = Seq(
 
 lazy val commonSettings = Seq(
    organization := "com.spinoco",
-   scalaVersion := "2.12.6",
-   crossScalaVersions := Seq("2.11.12", "2.12.6"),
-   scalacOptions ++= Seq(
-    "-feature",
-    "-deprecation",
-    "-language:implicitConversions",
-    "-language:higherKinds",
-    "-language:existentials",
-    "-language:postfixOps",
-    "-Xfatal-warnings",
-    "-Yno-adapted-args",
-    "-Ywarn-value-discard",
-    "-Ywarn-unused-import"
-   ),
+   scalaVersion := "2.13.0",
+   crossScalaVersions := Seq("2.11.12", "2.12.8", "2.13.0"),
+   scalacOptions ++= commonScalacOptions(scalaVersion.value),
    scalacOptions in (Compile, console) ~= {_.filterNot("-Ywarn-unused-import" == _)},
    scalacOptions in (Test, console) := (scalacOptions in (Compile, console)).value,
    libraryDependencies ++= Seq(
-     compilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
-     , "org.scodec" %% "scodec-bits" % "1.1.4"
-     , "org.scodec" %% "scodec-core" % "1.10.3"
-     , "com.spinoco" %% "protocol-http" % "0.3.15"
-     , "com.spinoco" %% "protocol-websocket" % "0.3.15"
-     , "co.fs2" %% "fs2-core" % "1.0.0"
-     , "co.fs2" %% "fs2-io" % "1.0.0"
-     , "com.spinoco" %% "fs2-crypto" % "0.4.0"
-     , "org.scalacheck" %% "scalacheck" % "1.13.4" % "test"
-   ),
+     "org.scodec" %% "scodec-bits" % "1.1.12"
+     , "org.scodec" %% "scodec-core" % "1.11.4"
+     , "com.spinoco" %% "protocol-http" % "0.3.19-SNAPSHOT"
+     , "com.spinoco" %% "protocol-websocket" % "0.3.19-SNAPSHOT"
+     , "co.fs2" %% "fs2-core" % "1.1.0-M1"
+     , "co.fs2" %% "fs2-io" % "1.1.0-M1"
+     , "com.spinoco" %% "fs2-crypto" % "0.5.0-M1"
+     , "org.scalacheck" %% "scalacheck" % "1.14.0" % Test
+   ) ++ macroDependencies(scalaVersion.value),
    scmInfo := Some(ScmInfo(url("https://github.com/Spinoco/fs2-http"), "git@github.com:Spinoco/fs2-http.git")),
    homepage := None,
    licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
@@ -116,4 +104,41 @@ lazy val `fs2-http`=
     name := "fs2-http"
   )
 
+
+def macroDependencies(scalaVersion: String) =
+  if (priorTo2_13(scalaVersion))
+    Seq(
+      compilerPlugin(("org.scalamacros" %% "paradise" % "2.1.1").cross(CrossVersion.patch))
+    )
+  else Seq.empty
+
+def commonScalacOptions(scalaVersion: String) =
+  Seq(
+    "-encoding", "UTF-8",
+    "-feature",
+    "-deprecation",
+    "-language:existentials",
+    "-language:higherKinds",
+    "-language:implicitConversions",
+    "-language:postfixOps",
+    "-unchecked",
+    "-Ywarn-dead-code",
+    "-Ywarn-numeric-widen",
+    "-Ywarn-value-discard"
+  ) ++ (if (priorTo2_13(scalaVersion))
+          Seq(
+            "-Ywarn-unused-import",
+            "-Yno-adapted-args",
+            "-Xfatal-warnings", // TODO: add the following two back to 2.13 (deprecation?)
+          )
+        else
+          Seq(
+            "-Ymacro-annotations"
+          ))
+
+def priorTo2_13(scalaVersion: String): Boolean =
+  CrossVersion.partialVersion(scalaVersion) match {
+    case Some((2, minor)) if minor < 13 => true
+    case _                              => false
+  }
 

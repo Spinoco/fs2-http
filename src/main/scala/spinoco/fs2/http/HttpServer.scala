@@ -1,12 +1,12 @@
 package spinoco.fs2.http
 
 import java.net.InetSocketAddress
-import java.nio.channels.AsynchronousChannelGroup
 
-import cats.effect.{ConcurrentEffect, Sync, Timer}
+import cats.effect.{ConcurrentEffect, ContextShift, Sync, Timer}
 import cats.syntax.all._
 import fs2._
 import fs2.concurrent.SignallingRef
+import fs2.io.tcp.SocketGroup
 import scodec.Codec
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader, HttpStatusCode}
@@ -19,7 +19,7 @@ object HttpServer {
   /**
     * Creates simple http server,
     *
-    * Serve will run after the resulting stream is run.
+    * Server will run after the resulting stream is run.
     *
     * @param bindTo                       Address and port where to bind server to
     * @param maxConcurrent                Maximum requests to process concurrently
@@ -36,7 +36,7 @@ object HttpServer {
     *                                     Request is not suplied if failure happened before request was constructed.
     *
     */
-  def apply[F[_] : ConcurrentEffect : Timer](
+  def apply[F[_] : ConcurrentEffect : ContextShift : Timer](
     maxConcurrent: Int = Int.MaxValue
     , receiveBufferSize: Int = 256 * 1024
     , maxHeaderSize: Int = 10 *1024
@@ -49,16 +49,16 @@ object HttpServer {
     , sendFailure: (Option[HttpRequestHeader], HttpResponse[F], Throwable) => Stream[F, Nothing]
   )(
     implicit
-    AG: AsynchronousChannelGroup
+    SG: SocketGroup
   ): Stream[F, Unit] = {
     import Stream._
-    import internal._
+    import spinoco.fs2.http.internal._
     val (initial, readDuration) = requestHeaderReceiveTimeout match {
       case fin: FiniteDuration => (true, fin)
       case _ => (false, 0.millis)
     }
 
-    io.tcp.server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
+    SG.server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
       Stream.resource(resource).flatMap { socket =>
       eval(SignallingRef(initial)).flatMap { timeoutSignal =>
         readWithTimeout[F](socket, readDuration, timeoutSignal.get, receiveBufferSize)
