@@ -3,7 +3,7 @@ package spinoco.fs2.http
 import java.net.InetSocketAddress
 import java.nio.channels.AsynchronousChannelGroup
 
-import cats.effect.{ConcurrentEffect, Sync, Timer}
+import cats.effect.{ConcurrentEffect, ContextShift, Sync, Timer}
 import cats.syntax.all._
 import fs2._
 import fs2.concurrent.SignallingRef
@@ -57,8 +57,11 @@ object HttpServer {
       case fin: FiniteDuration => (true, fin)
       case _ => (false, 0.millis)
     }
+    val b: cats.effect.Blocker = ???
+    implicit val cs: ContextShift[F] = ???
 
-    io.tcp.server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
+
+    new io.tcp.SocketGroup(AG, b).server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
       Stream.resource(resource).flatMap { socket =>
       eval(SignallingRef(initial)).flatMap { timeoutSignal =>
         readWithTimeout[F](socket, readDuration, timeoutSignal.get, receiveBufferSize)

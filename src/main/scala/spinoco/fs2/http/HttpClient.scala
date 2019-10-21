@@ -128,7 +128,9 @@ trait HttpClient[F[_]] {
        , timeout: Duration
       ): Stream[F, HttpResponse[F]] = {
         Stream.eval(addressForRequest[F](request.scheme, request.host)).flatMap { address =>
-        Stream.resource(io.tcp.client[F](address))
+          val b: cats.effect.Blocker = ???
+
+        Stream.resource(new io.tcp.SocketGroup(AG, b).client[F](address))
         .evalMap { socket =>
           if (!request.isSecure) Applicative[F].pure(socket)
           else clientLiftToSecure[F](sslS, sslCtx)(socket, request.host)
@@ -174,7 +176,7 @@ trait HttpClient[F[_]] {
        timeout match {
          case fin: FiniteDuration =>
            eval(clock.realTime(TimeUnit.MILLISECONDS)).flatMap { start =>
-           HttpRequest.toStream(request, requestCodec).to(socket.writes(Some(fin))).last.onFinalize(socket.endOfOutput).flatMap { _ =>
+           HttpRequest.toStream(request, requestCodec).through(socket.writes(Some(fin))).last.onFinalize(socket.endOfOutput).flatMap { _ =>
            eval(SignallingRef[F, Boolean](true)).flatMap { timeoutSignal =>
            eval(clock.realTime(TimeUnit.MILLISECONDS)).flatMap { sent =>
              val remains = fin - (sent - start).millis
@@ -186,7 +188,7 @@ trait HttpClient[F[_]] {
            }}}}
 
          case _ =>
-           HttpRequest.toStream(request, requestCodec).to(socket.writes(None)).last.onFinalize(socket.endOfOutput).flatMap { _ =>
+           HttpRequest.toStream(request, requestCodec).through(socket.writes(None)).last.onFinalize(socket.endOfOutput).flatMap { _ =>
              socket.reads(chunkSize, None) through HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec)
            }
        }

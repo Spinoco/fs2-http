@@ -95,7 +95,9 @@ object WebSocket {
     import spinoco.fs2.http.internal._
     import Stream._
     eval(addressForRequest[F](if (request.secure) HttpScheme.WSS else HttpScheme.WS, request.hostPort)).flatMap { address =>
-    Stream.resource(io.tcp.client[F](address, receiveBufferSize = receiveBufferSize))
+      val b: cats.effect.Blocker = ???
+
+    Stream.resource(new io.tcp.SocketGroup(AG, b).client[F](address, receiveBufferSize = receiveBufferSize))
     .evalMap { socket => if (request.secure) clientLiftToSecure(sslES, sslContext)(socket, request.hostPort) else Applicative[F].pure(socket) }
     .flatMap { socket =>
       val (header, fingerprint) = impl.createRequestHeaders(request.header)
