@@ -36,7 +36,7 @@ object HttpServer {
     *                                     Request is not suplied if failure happened before request was constructed.
     *
     */
-  def apply[F[_] : ConcurrentEffect : Timer](
+  def apply[F[_] : ConcurrentEffect : ContextShift : Timer](
     maxConcurrent: Int = Int.MaxValue
     , receiveBufferSize: Int = 256 * 1024
     , maxHeaderSize: Int = 10 *1024
@@ -58,8 +58,6 @@ object HttpServer {
       case _ => (false, 0.millis)
     }
     val b: cats.effect.Blocker = ???
-    implicit val cs: ContextShift[F] = ???
-
 
     new io.tcp.SocketGroup(AG, b).server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
       Stream.resource(resource).flatMap { socket =>

@@ -30,7 +30,7 @@ package object http {
     *                                     Request will fail, if the header won't be read within this timeout.
     * @param service                      Pipe that defines handling of each incoming request and produces a response
     */
-  def server[F[_] : ConcurrentEffect : Timer](
+  def server[F[_] : ConcurrentEffect : ContextShift : Timer](
      bindTo: InetSocketAddress
      , maxConcurrent: Int = Int.MaxValue
      , receiveBufferSize: Int = 256 * 1024
