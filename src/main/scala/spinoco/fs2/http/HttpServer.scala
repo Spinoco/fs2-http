@@ -3,7 +3,7 @@ package spinoco.fs2.http
 import java.net.InetSocketAddress
 import java.nio.channels.AsynchronousChannelGroup
 
-import cats.effect.{ConcurrentEffect, ContextShift, Sync, Timer}
+import cats.effect.{Blocker, ConcurrentEffect, ContextShift, Sync, Timer}
 import cats.syntax.all._
 import fs2._
 import fs2.concurrent.SignallingRef
@@ -34,6 +34,7 @@ object HttpServer {
     *                                     This is also evaluated when the server failed to process the request itself (i.e. `service` did not handle the failure )
     * @param sendFailure                  A function to be evaluated on failure to process the the response.
     *                                     Request is not suplied if failure happened before request was constructed.
+    * @param blocker                      An execution context for blocking operations
     *
     */
   def apply[F[_] : ConcurrentEffect : ContextShift : Timer](
@@ -47,6 +48,7 @@ object HttpServer {
     , service:  (HttpRequestHeader, Stream[F,Byte]) => Stream[F,HttpResponse[F]]
     , requestFailure : Throwable => Stream[F, HttpResponse[F]]
     , sendFailure: (Option[HttpRequestHeader], HttpResponse[F], Throwable) => Stream[F, Nothing]
+    , blocker: Blocker
   )(
     implicit
     AG: AsynchronousChannelGroup
@@ -57,9 +59,7 @@ object HttpServer {
       case fin: FiniteDuration => (true, fin)
       case _ => (false, 0.millis)
     }
-    val b: cats.effect.Blocker = ???
-
-    new io.tcp.SocketGroup(AG, b).server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
+    new io.tcp.SocketGroup(AG, blocker).server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
       Stream.resource(resource).flatMap { socket =>
       eval(SignallingRef(initial)).flatMap { timeoutSignal =>
         readWithTimeout[F](socket, readDuration, timeoutSignal.get, receiveBufferSize)

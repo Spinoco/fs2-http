@@ -110,12 +110,14 @@ trait HttpClient[F[_]] {
      * @param responseCodec   Codec used to encode response header
      * @param sslExecutionContext     Strategy used when communication with SSL (https or wss)
      * @param sslContext      SSL Context to use with SSL Client (https, wss)
+     * @param blocker         An execution context for blocking operations
      */
   def apply[F[_] : ConcurrentEffect : ContextShift : Timer](
    requestCodec         : Codec[HttpRequestHeader]
    , responseCodec      : Codec[HttpResponseHeader]
    , sslExecutionContext: => ExecutionContext
    , sslContext         : => SSLContext
+   , blocker            : Blocker
   )(implicit AG: AsynchronousChannelGroup):F[HttpClient[F]] = Sync[F].delay {
     lazy val sslCtx = sslContext
     lazy val sslS = sslExecutionContext
@@ -128,9 +130,7 @@ trait HttpClient[F[_]] {
        , timeout: Duration
       ): Stream[F, HttpResponse[F]] = {
         Stream.eval(addressForRequest[F](request.scheme, request.host)).flatMap { address =>
-          val b: cats.effect.Blocker = ???
-
-        Stream.resource(new io.tcp.SocketGroup(AG, b).client[F](address))
+        Stream.resource(new io.tcp.SocketGroup(AG, blocker).client[F](address))
         .evalMap { socket =>
           if (!request.isSecure) Applicative[F].pure(socket)
           else clientLiftToSecure[F](sslS, sslCtx)(socket, request.host)
