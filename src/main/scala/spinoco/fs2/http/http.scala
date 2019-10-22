@@ -29,7 +29,7 @@ package object http {
     * @param requestHeaderReceiveTimeout  A timeout to await request header to be fully received.
     *                                     Request will fail, if the header won't be read within this timeout.
     * @param service                      Pipe that defines handling of each incoming request and produces a response
-    * @param blockingExecutionContext     ExecutionContext for blocking operations
+    * @param blocker                      An execution context for blocking operations
     */
   def server[F[_] : ConcurrentEffect : ContextShift : Timer](
      bindTo: InetSocketAddress
@@ -39,7 +39,7 @@ package object http {
      , requestHeaderReceiveTimeout: Duration = 5.seconds
      , requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
      , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
-     , blockingExecutionContext: ExecutionContext = ExecutionContext.fromExecutorService(Executors.newFixedThreadPool(1))
+     , blocker: Blocker = util.mkBlocker(2)
    )(
      service:  (HttpRequestHeader, Stream[F,Byte]) => Stream[F,HttpResponse[F]]
    )(implicit AG: AsynchronousChannelGroup):Stream[F,Unit] = HttpServer(
@@ -53,7 +53,7 @@ package object http {
     , service = service
     , requestFailure = HttpServer.handleRequestParseError[F] _
     , sendFailure = HttpServer.handleSendFailure[F] _
-    , blocker = Blocker.liftExecutionContext(blockingExecutionContext)
+    , blocker = blocker
   )
 
 
@@ -63,16 +63,16 @@ package object http {
     * @param requestCodec    Codec used to decode request header
     * @param responseCodec   Codec used to encode response header
     * @param sslStrategy     Strategy used to perform blocking SSL operations
-    * @param blockingExecutionContext    ExecutionContext for blocking operations
+    * @param blocker         An execution context for blocking operations
     */
   def client[F[_]: ConcurrentEffect : ContextShift : Timer](
    requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
    , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
    , sslStrategy: => ExecutionContext =  ExecutionContext.fromExecutorService(Executors.newCachedThreadPool(util.mkThreadFactory("fs2-http-ssl", daemon = true)))
    , sslContext: => SSLContext = { val ctx = SSLContext.getInstance("TLS"); ctx.init(null,null,null); ctx }
-   , blockingExecutionContext: ExecutionContext = ExecutionContext.fromExecutorService(Executors.newFixedThreadPool(1))
+   , blocker: Blocker = util.mkBlocker(2)
   )(implicit AG: AsynchronousChannelGroup):F[HttpClient[F]] = {
-    HttpClient(requestCodec, responseCodec, sslStrategy, sslContext, Blocker.liftExecutionContext(blockingExecutionContext))
+    HttpClient(requestCodec, responseCodec, sslStrategy, sslContext, blocker)
     }
 
 }
