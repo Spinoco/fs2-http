@@ -1,8 +1,9 @@
 package spinoco.fs2.http
 
 import java.net.InetSocketAddress
+import java.util.concurrent.Executors
 
-import cats.effect.IO
+import cats.effect.{Blocker, IO}
 import fs2._
 import org.scalacheck.Properties
 import org.scalacheck.Prop._
@@ -12,12 +13,14 @@ import spinoco.protocol.http.header.{`Content-Length`, `Content-Type`}
 import spinoco.protocol.mime.{ContentType, MediaType}
 import spinoco.protocol.http.{HttpRequestHeader, HttpStatusCode, Uri}
 
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 object HttpServerSpec extends Properties("HttpServer"){
   import Resources._
 
   val MaxConcurrency: Int = 10
+  val blocker = Blocker.liftExecutionContext(ExecutionContext.fromExecutorService(Executors.newFixedThreadPool(4)))
 
   def echoService(request: HttpRequestHeader, body: Stream[IO,Byte]): Stream[IO,HttpResponse[IO]] = {
     if (request.path != Uri.Path / "echo") Stream.emit(HttpResponse[IO](HttpStatusCode.Ok).withUtf8Body("Hello World")).covary[IO]
@@ -117,6 +120,7 @@ object HttpServerSpec extends Properties("HttpServer"){
         , service = failRouteService
         , requestFailure = _ => { Stream(HttpResponse[IO](HttpStatusCode.BadRequest)).covary[IO] }
         , sendFailure = HttpServer.handleSendFailure[IO] _
+        , blocker = blocker
       ).drain
     ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients).parJoin(MaxConcurrency))
     .take(count)
@@ -150,6 +154,7 @@ object HttpServerSpec extends Properties("HttpServer"){
         , service = failingResponse
         , requestFailure = HttpServer.handleRequestParseError[IO] _
         , sendFailure = (_, _, _) => Stream.empty
+        , blocker = blocker
       ).drain
     ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients).parJoin(MaxConcurrency))
       .take(count)
