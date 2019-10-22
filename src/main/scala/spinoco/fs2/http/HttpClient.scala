@@ -145,7 +145,7 @@ trait HttpClient[F[_]] {
         , chunkSize: Int
         , maxFrameSize: Int
       ): Stream[F, Option[HttpResponseHeader]] =
-        WebSocket.client(request,pipe,maxResponseHeaderSize,chunkSize,maxFrameSize, requestCodec, responseCodec, sslS, sslCtx)
+        WebSocket.client(request,pipe,maxResponseHeaderSize,chunkSize,maxFrameSize, requestCodec, responseCodec, sslS, sslCtx, blocker)
 
 
       def sse[A : SSEDecoder](rq: HttpRequest[F], maxResponseHeaderSize: Int, chunkSize: Int): Stream[F, A] =
