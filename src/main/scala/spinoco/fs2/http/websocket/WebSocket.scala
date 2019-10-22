@@ -92,7 +92,7 @@ object WebSocket {
     , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
     , sslES: => ExecutionContext = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool(spinoco.fs2.http.util.mkThreadFactory("fs2-http-ssl", daemon = true)))
     , sslContext: => SSLContext = { val ctx = SSLContext.getInstance("TLS"); ctx.init(null,null,null); ctx }
-    , blocker: Blocker = Blocker.liftExecutionContext(ExecutionContext.fromExecutorService(Executors.newFixedThreadPool(1)))
+    , blocker: Blocker = spinoco.fs2.http.util.mkBlocker(2)
   )(implicit AG: AsynchronousChannelGroup): Stream[F, Option[HttpResponseHeader]] = {
     import spinoco.fs2.http.internal._
     import Stream._

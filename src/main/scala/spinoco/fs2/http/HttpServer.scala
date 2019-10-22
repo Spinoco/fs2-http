@@ -59,6 +59,7 @@ object HttpServer {
       case fin: FiniteDuration => (true, fin)
       case _ => (false, 0.millis)
     }
+
     new io.tcp.SocketGroup(AG, blocker).server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
       Stream.resource(resource).flatMap { socket =>
       eval(SignallingRef(initial)).flatMap { timeoutSignal =>
