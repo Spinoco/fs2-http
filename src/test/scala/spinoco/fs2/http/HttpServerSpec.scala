@@ -117,6 +117,7 @@ object HttpServerSpec extends Properties("HttpServer"){
         , service = failRouteService
         , requestFailure = _ => { Stream(HttpResponse[IO](HttpStatusCode.BadRequest)).covary[IO] }
         , sendFailure = HttpServer.handleSendFailure[IO] _
+        , blocker = util.mkBlocker(2)
       ).drain
     ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients).parJoin(MaxConcurrency))
     .take(count)
@@ -150,6 +151,7 @@ object HttpServerSpec extends Properties("HttpServer"){
         , service = failingResponse
         , requestFailure = HttpServer.handleRequestParseError[IO] _
         , sendFailure = (_, _, _) => Stream.empty
+        , blocker = util.mkBlocker(2)
       ).drain
     ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients).parJoin(MaxConcurrency))
       .take(count)

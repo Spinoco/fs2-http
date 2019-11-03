@@ -110,12 +110,14 @@ trait HttpClient[F[_]] {
      * @param responseCodec   Codec used to encode response header
      * @param sslExecutionContext     Strategy used when communication with SSL (https or wss)
      * @param sslContext      SSL Context to use with SSL Client (https, wss)
+     * @param blocker         An execution context for blocking operations
      */
   def apply[F[_] : ConcurrentEffect : ContextShift : Timer](
    requestCodec         : Codec[HttpRequestHeader]
    , responseCodec      : Codec[HttpResponseHeader]
    , sslExecutionContext: => ExecutionContext
    , sslContext         : => SSLContext
+   , blocker            : Blocker
   )(implicit AG: AsynchronousChannelGroup):F[HttpClient[F]] = Sync[F].delay {
     lazy val sslCtx = sslContext
     lazy val sslS = sslExecutionContext
@@ -128,7 +130,7 @@ trait HttpClient[F[_]] {
        , timeout: Duration
       ): Stream[F, HttpResponse[F]] = {
         Stream.eval(addressForRequest[F](request.scheme, request.host)).flatMap { address =>
-        Stream.resource(io.tcp.client[F](address))
+        Stream.resource(new io.tcp.SocketGroup(AG, blocker).client[F](address))
         .evalMap { socket =>
           if (!request.isSecure) Applicative[F].pure(socket)
           else clientLiftToSecure[F](sslS, sslCtx)(socket, request.host)
@@ -143,7 +145,7 @@ trait HttpClient[F[_]] {
         , chunkSize: Int
         , maxFrameSize: Int
       ): Stream[F, Option[HttpResponseHeader]] =
-        WebSocket.client(request,pipe,maxResponseHeaderSize,chunkSize,maxFrameSize, requestCodec, responseCodec, sslS, sslCtx)
+        WebSocket.client(request,pipe,maxResponseHeaderSize,chunkSize,maxFrameSize, requestCodec, responseCodec, sslS, sslCtx, blocker)
 
 
       def sse[A : SSEDecoder](rq: HttpRequest[F], maxResponseHeaderSize: Int, chunkSize: Int): Stream[F, A] =
@@ -174,7 +176,7 @@ trait HttpClient[F[_]] {
        timeout match {
          case fin: FiniteDuration =>
            eval(clock.realTime(TimeUnit.MILLISECONDS)).flatMap { start =>
-           HttpRequest.toStream(request, requestCodec).to(socket.writes(Some(fin))).last.onFinalize(socket.endOfOutput).flatMap { _ =>
+           HttpRequest.toStream(request, requestCodec).through(socket.writes(Some(fin))).last.onFinalize(socket.endOfOutput).flatMap { _ =>
            eval(SignallingRef[F, Boolean](true)).flatMap { timeoutSignal =>
            eval(clock.realTime(TimeUnit.MILLISECONDS)).flatMap { sent =>
              val remains = fin - (sent - start).millis
@@ -186,7 +188,7 @@ trait HttpClient[F[_]] {
            }}}}
 
          case _ =>
-           HttpRequest.toStream(request, requestCodec).to(socket.writes(None)).last.onFinalize(socket.endOfOutput).flatMap { _ =>
+           HttpRequest.toStream(request, requestCodec).through(socket.writes(None)).last.onFinalize(socket.endOfOutput).flatMap { _ =>
              socket.reads(chunkSize, None) through HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec)
            }
        }

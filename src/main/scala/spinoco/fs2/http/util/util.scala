@@ -4,6 +4,7 @@ import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.{Executors, ThreadFactory}
 import java.util.concurrent.atomic.AtomicInteger
 
+import cats.effect.Blocker
 import fs2.Chunk.ByteVectorChunk
 import fs2._
 import scodec.bits.{BitVector, ByteVector}
@@ -154,6 +155,11 @@ package object util {
       }
     }
   }
+
+  def mkFixedExecutionContext(nThreads: Int) =
+    ExecutionContext.fromExecutorService(Executors.newFixedThreadPool(nThreads))
+
+  def mkBlocker(nThreads: Int) = Blocker.liftExecutionContext(mkFixedExecutionContext(nThreads))
 
   def getCharset(ct: ContentType): Option[MIMECharset] = {
     ct match {

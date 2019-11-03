@@ -6,7 +6,7 @@ import java.util.concurrent.Executors
 
 import cats.Applicative
 import javax.net.ssl.SSLContext
-import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, Timer}
+import cats.effect.{Blocker, Concurrent, ConcurrentEffect, ContextShift, Timer}
 import fs2.Chunk.ByteVectorChunk
 import fs2._
 import fs2.concurrent.Queue
@@ -79,6 +79,7 @@ object WebSocket {
     *                             supplied value, websocket will fail.
     * @param requestCodec         Codec to encode HttpRequests Header
     * @param responseCodec        Codec to decode HttpResponse Header
+    * @param blocker              An execution context for blocking operations
     *
     */
   def client[F[_] : ConcurrentEffect : ContextShift : Timer, I : Decoder, O : Encoder](
@@ -91,11 +92,12 @@ object WebSocket {
     , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
     , sslES: => ExecutionContext = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool(spinoco.fs2.http.util.mkThreadFactory("fs2-http-ssl", daemon = true)))
     , sslContext: => SSLContext = { val ctx = SSLContext.getInstance("TLS"); ctx.init(null,null,null); ctx }
+    , blocker: Blocker = spinoco.fs2.http.util.mkBlocker(2)
   )(implicit AG: AsynchronousChannelGroup): Stream[F, Option[HttpResponseHeader]] = {
     import spinoco.fs2.http.internal._
     import Stream._
     eval(addressForRequest[F](if (request.secure) HttpScheme.WSS else HttpScheme.WS, request.hostPort)).flatMap { address =>
-    Stream.resource(io.tcp.client[F](address, receiveBufferSize = receiveBufferSize))
+    Stream.resource(new io.tcp.SocketGroup(AG, blocker).client[F](address, receiveBufferSize = receiveBufferSize))
     .evalMap { socket => if (request.secure) clientLiftToSecure(sslES, sslContext)(socket, request.hostPort) else Applicative[F].pure(socket) }
     .flatMap { socket =>
       val (header, fingerprint) = impl.createRequestHeaders(request.header)
