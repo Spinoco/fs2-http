@@ -1,4 +1,6 @@
 
+dist: trusty
+
 language : scala
 
 scala:
