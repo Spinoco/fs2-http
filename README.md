@@ -36,9 +36,9 @@ libraryDependencies += "com.spinoco" %% "fs2-http" % "0.4.0"
 
 ### Dependencies
 
-version  |    scala  |   fs2  |  scodec | shapeless      
+version  |    scala  |   fs2  |  scodec | shapeless
 ---------|-----------|--------|---------|-----------
-0.4.0    | 2.11, 2.12| 1.0.0  | 1.10.3  | 2.3.2 
+0.4.0    | 2.11, 2.12| 1.0.0  | 1.10.3  | 2.3.2
 
 
 ## Usage
@@ -69,20 +69,24 @@ A simple client that requests https page body data with the GET method from `htt
 
 ```
 http.client[IO]().flatMap { client =>
-  val request = HttpRequest.get[IO](Uri.https("github.com", "/Spinoco/fs2-http"))
-  client.request(request).flatMap { resp =>
-    Stream.eval(resp.bodyAsString)
-  }.runLog.map {
-    println
+    val request = HttpRequest.get[IO]((Uri.https("github.com", "/Spinoco/fs2-http")))
+    client.request(request).flatMap { resp =>
+      Stream.eval(resp.bodyAsString)
+    }
+    .compile
+    .toVector
+    .map {
+      println
+    }
   }
-}.unsafeRunSync()
+  .unsafeRunSync()
 ```
 
 The above code snippet only "builds" the http client, resulting in `IO` that will be evaluated once run (using `unsafeRunSync()`).
 The line with `Stream.eval(resp.bodyAsString)` on it actually evaluates the consumed body of the response. The body of the
 response can be evaluated strictly (meaning all output is first collected and then converted to the desired type), or it can be streamed (meaning it will be converted to the desired type as it is received from the server). A streamed body is accessible as `resp.body`.
 
-Requests to the server are modeled with [HttpRequest\[F\]](https://github.com/Spinoco/fs2-http/blob/master/src/main/scala/spinoco/fs2/http/HttpRequestOrResponse.scala#L116), and responses are modeled as [HttpResponse\[F\]](https://github.com/Spinoco/fs2-http/blob/master/src/main/scala/spinoco/fs2/http/HttpRequestOrResponse.scala#L232). Both of them share several [helpers](https://github.com/Spinoco/fs2-http/blob/master/src/main/scala/spinoco/fs2/http/HttpRequestOrResponse.scala#L17) to help you work easily with the body.  
+Requests to the server are modeled with [HttpRequest\[F\]](https://github.com/Spinoco/fs2-http/blob/master/src/main/scala/spinoco/fs2/http/HttpRequestOrResponse.scala#L116), and responses are modeled as [HttpResponse\[F\]](https://github.com/Spinoco/fs2-http/blob/master/src/main/scala/spinoco/fs2/http/HttpRequestOrResponse.scala#L232). Both of them share several [helpers](https://github.com/Spinoco/fs2-http/blob/master/src/main/scala/spinoco/fs2/http/HttpRequestOrResponse.scala#L17) to help you work easily with the body.
 
 There is also a simple way to sent (stream) arbitrary data to server. It is easily achieved by modifying the request accordingly:
 
@@ -109,8 +113,8 @@ def wsPipe: Pipe[IO, Frame[String], Frame[String]] = { inbound =>
 }
 
 http.client[IO]().flatMap { client =>
-  val request = WebSocketRequest.ws("echo.websocket.org", "/", "encoding" -> "text")  
-  client.websocket(request, wsPipe).run  
+  val request = WebSocketRequest.ws("echo.websocket.org", "/", "encoding" -> "text")
+  client.websocket(request, wsPipe).run
 }.unsafeRun()
 ```
 
@@ -150,7 +154,7 @@ fs2-http supports building simple yet fully functional HTTP servers. The followi
 As you see the server creates a simple `Stream[F,Unit]` that, when run, will bind itself to 127.0.0.1 port 9090 and will serve the results of the `service` function.
 The service function is defined as `(HttpRequestHeader, Stream[F, Body])  => Stream[F, HttpResponse[F]` and allows you to perform arbitrary functionality, all wrapped in `fs2.Stream`.
 
-Writing a server service function manually may not be fun and may result in unreadable and hard to maintain code. As such the last component of fs2-http is server routing.    
+Writing a server service function manually may not be fun and may result in unreadable and hard to maintain code. As such the last component of fs2-http is server routing.
 
 ### HTTP Server Routing
 
@@ -183,7 +187,7 @@ The meaning of the individual routes is as follows:
 - example3 : will match path "/example3" and will consume body to produce `Foo` class. Map is supplied with Foo :: HttpMethod.Value :: HNil
 - example4 : will match path "/example4" and will match if header `Content-Type` is present supplying that header to map.
 - example5 : will match path "/example5?count=1&query=sql_query" supplying 1 :: "sql:query" :: HNil to map
-- example6 : will match path "/example6" and then evaluating `someEffect` where the result of someEffect will be passed to map  
+- example6 : will match path "/example6" and then evaluating `someEffect` where the result of someEffect will be passed to map
 
 ### Other documentation and helpful links
 
@@ -191,6 +195,6 @@ The meaning of the individual routes is as follows:
 
 ### Comparing to http://http4s.org/
 
-Http4s.org is a very useful library for http, originally started with scalaz-stream and currently fully supporting fs2. 
-The main differences between http4s.org and fs2-http is that unlike http4s.org, fs2-http is purely functional, including the network stack 
-which is completely impliemented in fs2. Also the fs2-http focuses to be minimalistic both on dependencies and functionality provided. 
+Http4s.org is a very useful library for http, originally started with scalaz-stream and currently fully supporting fs2.
+The main differences between http4s.org and fs2-http is that unlike http4s.org, fs2-http is purely functional, including the network stack
+which is completely impliemented in fs2. Also the fs2-http focuses to be minimalistic both on dependencies and functionality provided.
