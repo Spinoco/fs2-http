@@ -2,8 +2,8 @@
 language : scala
 
 scala:
-  - 2.11.12
-  - 2.12.6
+  - 2.12.11
+  - 2.13.0
 
 dist: trusty 
 
