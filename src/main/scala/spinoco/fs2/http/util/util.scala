@@ -24,7 +24,7 @@ package object util {
     */
   def encodeBase64Raw[F[_]](alphabet:Base64Alphabet): Pipe[F, Byte, Byte] = {
     def go(rem:ByteVector): Stream[F,Byte] => Pull[F, Byte, Unit] = {
-      _.pull.unconsChunk flatMap {
+      _.pull.uncons flatMap {
         case None =>
           if (rem.size == 0) Pull.done
           else Pull.output(ByteVectorChunk(ByteVector.view(rem.toBase64(alphabet).getBytes)))
@@ -65,10 +65,10 @@ package object util {
     * Decodes base64 encoded stream with supplied alphabet. Whitespaces are ignored.
     * Decoding is lazy to support very large Base64 bodies (i.e. email)
     */
-  def decodeBase64Raw[F[_]](alphabet:Base64Alphabet):Pipe[F, Byte, Byte] = {
+  def decodeBase64Raw[F[_] : RaiseThrowable](alphabet:Base64Alphabet):Pipe[F, Byte, Byte] = {
     val Pad = alphabet.pad
     def go(remAcc:BitVector): Stream[F, Byte] => Pull[F, Byte, Unit] = {
-      _.pull.unconsChunk flatMap {
+      _.pull.uncons flatMap {
         case None => Pull.done
 
         case Some((chunk,tl)) =>
@@ -108,11 +108,11 @@ package object util {
   }
 
   /** decodes base64 encoded stream [[http://tools.ietf.org/html/rfc4648#section-5 RF4648 section 5]]. Whitespaces are ignored **/
-  def decodeBase64Url[F[_]]:Pipe[F, Byte, Byte] =
+  def decodeBase64Url[F[_] : RaiseThrowable]:Pipe[F, Byte, Byte] =
     decodeBase64Raw(Alphabets.Base64Url)
 
   /** decodes base64 encoded stream [[http://tools.ietf.org/html/rfc4648#section-4 RF4648 section 4]] **/
-  def decodeBase64[F[_]]:Pipe[F, Byte, Byte] =
+  def decodeBase64[F[_] : RaiseThrowable]:Pipe[F, Byte, Byte] =
     decodeBase64Raw(Alphabets.Base64)
 
   /** converts chunk of bytes to ByteVector **/

@@ -71,7 +71,7 @@ object HttpServerSpec extends Properties("HttpServer"){
     def clients : Stream[IO, Stream[IO, (Int, Boolean)]] = {
       val request =
         HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
-       .withBody("Hello")(BodyEncoder.utf8String)
+       .withBody("Hello")(BodyEncoder.utf8String, RaiseThrowable.fromApplicativeError[IO])
 
       Stream.eval(client[IO]()).flatMap { httpClient =>
         Stream.range(0,count).unchunk.map { idx =>
@@ -112,10 +112,12 @@ object HttpServerSpec extends Properties("HttpServer"){
 
     (Stream.sleep_[IO](3.second) ++
     (Stream(
-      http.server[IO](
-        new InetSocketAddress("127.0.0.1", 9090)
-      , requestFailure = _ => { Stream(HttpResponse[IO](HttpStatusCode.BadRequest)).covary[IO] }
-      )(failRouteService).drain
+      HttpServer[IO](
+        bindTo = new InetSocketAddress("127.0.0.1", 9090)
+        , service = failRouteService
+        , requestFailure = _ => { Stream(HttpResponse[IO](HttpStatusCode.BadRequest)).covary[IO] }
+        , sendFailure = HttpServer.handleSendFailure[IO] _
+      ).drain
     ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients).parJoin(MaxConcurrency))
     .take(count)
     .filter { case (idx, success) => success }
@@ -143,10 +145,12 @@ object HttpServerSpec extends Properties("HttpServer"){
 
     (Stream.sleep_[IO](3.second) ++
     (Stream(
-      http.server[IO](
-        new InetSocketAddress("127.0.0.1", 9090)
+      HttpServer[IO](
+        bindTo = new InetSocketAddress("127.0.0.1", 9090)
+        , service = failingResponse
+        , requestFailure = HttpServer.handleRequestParseError[IO] _
         , sendFailure = (_, _, _) => Stream.empty
-      )(failingResponse).drain
+      ).drain
     ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients).parJoin(MaxConcurrency))
       .take(count)
       .filter { case (idx, success) => success }

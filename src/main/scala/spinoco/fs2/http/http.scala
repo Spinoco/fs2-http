@@ -5,12 +5,12 @@ import java.nio.channels.AsynchronousChannelGroup
 import java.util.concurrent.Executors
 
 import javax.net.ssl.SSLContext
-import cats.effect.{ConcurrentEffect, Timer}
+import cats.effect.{ConcurrentEffect, ContextShift, Timer}
 import fs2._
 import scodec.Codec
-
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
+
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
@@ -28,7 +28,6 @@ package object http {
     * @param maxHeaderSize                Maximum size of http header for incoming requests, in bytes
     * @param requestHeaderReceiveTimeout  A timeout to await request header to be fully received.
     *                                     Request will fail, if the header won't be read within this timeout.
-    * @param requestCodec                 Codec for Http Request Header
     * @param service                      Pipe that defines handling of each incoming request and produces a response
     */
   def server[F[_] : ConcurrentEffect : Timer](
@@ -39,8 +38,6 @@ package object http {
      , requestHeaderReceiveTimeout: Duration = 5.seconds
      , requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
      , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
-     , requestFailure : Throwable => Stream[F, HttpResponse[F]] = HttpServer.handleRequestParseError[F] _
-     , sendFailure: (Option[HttpRequestHeader], HttpResponse[F], Throwable) => Stream[F, Nothing] = HttpServer.handleSendFailure[F] _
    )(
      service:  (HttpRequestHeader, Stream[F,Byte]) => Stream[F,HttpResponse[F]]
    )(implicit AG: AsynchronousChannelGroup):Stream[F,Unit] = HttpServer(
@@ -52,8 +49,8 @@ package object http {
     , responseCodec = responseCodec
     , bindTo = bindTo
     , service = service
-    , requestFailure = requestFailure
-    , sendFailure = sendFailure
+    , requestFailure = HttpServer.handleRequestParseError[F] _
+    , sendFailure = HttpServer.handleSendFailure[F] _
   )
 
 
@@ -64,7 +61,7 @@ package object http {
     * @param responseCodec   Codec used to encode response header
     * @param sslStrategy     Strategy used to perform blocking SSL operations
     */
-  def client[F[_]: ConcurrentEffect : Timer](
+  def client[F[_]: ConcurrentEffect : ContextShift : Timer](
    requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
    , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
    , sslStrategy: => ExecutionContext =  ExecutionContext.fromExecutorService(Executors.newCachedThreadPool(util.mkThreadFactory("fs2-http-ssl", daemon = true)))
