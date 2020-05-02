@@ -4,6 +4,8 @@ import java.net.InetSocketAddress
 
 import cats.effect.IO
 import fs2._
+import fs2.io.tcp.SocketGroup
+import fs2.io.tls.TLSContext
 import org.scalacheck.{Gen, Prop, Properties}
 import org.scalacheck.Prop._
 import scodec.Codec
@@ -43,24 +45,27 @@ object WebSocketSpec extends Properties("WebSocket") {
       output merge inbound.take(5).evalMap { in => IO { received = received :+ in }}.drain
     }
 
-    val serverStream =
+    def serverStream(group: SocketGroup) =
       http.server[IO](new InetSocketAddress("127.0.0.1", 9090))(
         server (
           pipe = serverEcho
           , pingInterval = 500.millis
           , handshakeTimeout = 10.seconds
         )
-      )
+      )(group)
 
-    val clientStream =
+    def clientStream(group: SocketGroup, tls: TLSContext) =
       Stream.sleep_[IO](3.seconds) ++
       WebSocket.client(
         WebSocketRequest.ws("127.0.0.1", 9090, "/")
         , clientData
-      )
+      )(group, tls)
 
-    val resultClient =
-      (serverStream.drain mergeHaltBoth clientStream).compile.toVector.unsafeRunTimed(20.seconds)
+    val resultClient = {
+      Stream.resource(httpResources).flatMap { case (group, tls) =>
+      (serverStream(group).drain mergeHaltBoth clientStream(group, tls))
+      }.compile.toVector.unsafeRunTimed(20.seconds)
+    }
 
     (resultClient ?= Some(Vector(None))) &&
       (received.size ?= 5)

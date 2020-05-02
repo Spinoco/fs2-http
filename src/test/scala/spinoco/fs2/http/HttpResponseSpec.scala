@@ -8,7 +8,6 @@ import scodec.Attempt
 import spinoco.protocol.http.header._
 import spinoco.protocol.http.codec.HttpResponseHeaderCodec
 import spinoco.protocol.http.{HttpResponseHeader, HttpStatusCode}
-import spinoco.fs2.http.util.chunk2ByteVector
 import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 
 
@@ -21,7 +20,7 @@ object HttpResponseSpec extends Properties("HttpResponse") {
       .withUtf8Body("Hello World")
 
     HttpResponse.toStream(response, HttpResponseHeaderCodec.defaultCodec)
-      .chunks.compile.toVector.map { _.map(chunk2ByteVector).reduce { _ ++ _ }.decodeUtf8 }
+      .chunks.compile.toVector.map { _.map(_.toByteVector).reduce { _ ++ _ }.decodeUtf8 }
       .unsafeRunSync() ?=
       Right(Seq(
         "HTTP/1.1 200 OK"

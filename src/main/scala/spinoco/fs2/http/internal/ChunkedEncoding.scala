@@ -4,7 +4,6 @@ import fs2.Chunk.ByteVectorChunk
 import fs2._
 import scodec.bits.ByteVector
 
-import spinoco.fs2.http.util.chunk2ByteVector
 
 /**
   * Created by pach on 20/01/17.
@@ -15,14 +14,14 @@ object ChunkedEncoding {
   /** decodes from the HTTP chunked encoding. After last chunk this terminates. Allows to specify max header size, after which this terminates
     * Please see https://en.wikipedia.org/wiki/Chunked_transfer_encoding for details
     */
-  def decode[F[_]](maxChunkHeaderSize:Int): Pipe[F, Byte, Byte] = {
+  def decode[F[_]: RaiseThrowable](maxChunkHeaderSize:Int): Pipe[F, Byte, Byte] = {
     // on left reading the header of chunk (acting as buffer)
     // on right reading the chunk itself, and storing remaining bytes of the chunk
     def go(expect:Either[ByteVector,Long], in: Stream[F, Byte]): Pull[F, Byte, Unit] = {
-      in.pull.unconsChunk.flatMap {
+      in.pull.uncons.flatMap {
         case None => Pull.done
         case Some((h, tl)) =>
-          val bv = chunk2ByteVector(h)
+          val bv = h.toByteVector
           expect match {
             case Left(header) =>
               val nh = header ++ bv
@@ -65,14 +64,14 @@ object ChunkedEncoding {
       if (bv.isEmpty) Chunk.empty
       else ByteVectorChunk(ByteVector.view(bv.size.toHexString.toUpperCase.getBytes) ++ `\r\n` ++ bv ++ `\r\n` )
     }
-    _.mapChunks { ch => encodeChunk(chunk2ByteVector(ch)) } ++ Stream.chunk(lastChunk)
+    _.mapChunks { ch => encodeChunk(ch.toByteVector) } ++ Stream.chunk(lastChunk)
   }
 
 
 
   /** yields to size of header in case the chunked header was succesfully parsed, else yields to None **/
   private def readChunkedHeader(hdr:ByteVector):Option[Long] = {
-    hdr.decodeUtf8.right.toOption.flatMap { s =>
+    hdr.decodeUtf8.toOption.flatMap { s =>
       val parts = s.split(';') // lets ignore any extensions
       if (parts.isEmpty) None
       else {

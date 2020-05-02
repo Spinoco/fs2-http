@@ -1,19 +1,15 @@
 package spinoco.fs2.http.websocket
 
 
-import java.nio.channels.AsynchronousChannelGroup
-import java.util.concurrent.Executors
-
-import cats.Applicative
-import javax.net.ssl.SSLContext
-import cats.effect.{Concurrent, ConcurrentEffect, Timer}
+import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, Timer}
 import fs2.Chunk.ByteVectorChunk
 import fs2._
-import fs2.async.mutable.Queue
+import fs2.concurrent.Queue
+import fs2.io.tcp.SocketGroup
+import fs2.io.tls.TLSContext
 import scodec.Attempt.{Failure, Successful}
 import scodec.bits.ByteVector
 import scodec.{Codec, Decoder, Encoder}
-
 import spinoco.fs2.http.HttpResponse
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 import spinoco.protocol.http.header._
@@ -22,8 +18,7 @@ import spinoco.protocol.http.header.value.ProductDescription
 import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 import spinoco.protocol.websocket.{OpCode, WebSocketFrame}
 import spinoco.protocol.websocket.codec.WebSocketFrameCodec
-import spinoco.fs2.http.util.chunk2ByteVector
-import scala.concurrent.ExecutionContext
+
 import scala.concurrent.duration._
 import scala.util.Random
 
@@ -52,7 +47,7 @@ object WebSocket {
     , maxFrameSize: Int = 1024*1024
   )(header: HttpRequestHeader, input:Stream[F,Byte]): Stream[F,HttpResponse[F]] = {
     Stream.emit(
-      impl.verifyHeaderRequest[F](header).right.map { key =>
+      impl.verifyHeaderRequest[F](header).map { key =>
         val respHeader = impl.computeHandshakeResponse(header, key)
         HttpResponse(respHeader, input through impl.webSocketOf(pipe, pingInterval, maxFrameSize, client2Server = false))
       }.merge
@@ -81,7 +76,7 @@ object WebSocket {
     * @param responseCodec        Codec to decode HttpResponse Header
     *
     */
-  def client[F[_] : ConcurrentEffect : Timer, I : Decoder, O : Encoder](
+  def client[F[_] : ConcurrentEffect: ContextShift : Timer, I : Decoder, O : Encoder](
     request: WebSocketRequest
     , pipe: Pipe[F, Frame[I], Frame[O]]
     , maxHeaderSize: Int = 4096
@@ -89,23 +84,24 @@ object WebSocket {
     , maxFrameSize: Int = 1024*1024
     , requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
     , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
-    , sslES: => ExecutionContext = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool(spinoco.fs2.http.util.mkThreadFactory("fs2-http-ssl", daemon = true)))
-    , sslContext: => SSLContext = { val ctx = SSLContext.getInstance("TLS"); ctx.init(null,null,null); ctx }
-  )(implicit AG: AsynchronousChannelGroup): Stream[F, Option[HttpResponseHeader]] = {
+  )(
+    socketGroup: SocketGroup
+    , tlsContext: TLSContext
+  ): Stream[F, Option[HttpResponseHeader]] = {
     import spinoco.fs2.http.internal._
     import Stream._
     eval(addressForRequest[F](if (request.secure) HttpScheme.WSS else HttpScheme.WS, request.hostPort)).flatMap { address =>
-    Stream.resource(io.tcp.client[F](address, receiveBufferSize = receiveBufferSize))
-    .evalMap { socket => if (request.secure) clientLiftToSecure(sslES, sslContext)(socket, request.hostPort) else Applicative[F].pure(socket) }
+    Stream.resource(socketGroup.client[F](address, receiveBufferSize = receiveBufferSize))
+    .flatMap { socket => if (request.secure) Stream.resource(clientLiftToSecure(tlsContext)(socket, request.hostPort)) else Stream.emit(socket) }
     .flatMap { socket =>
       val (header, fingerprint) = impl.createRequestHeaders(request.header)
       requestCodec.encode(header) match {
-        case Failure(err) => Stream.raiseError(new Throwable(s"Failed to encode websocket request: $err"))
+        case Failure(err) => Stream.raiseError[F](new Throwable(s"Failed to encode websocket request: $err"))
         case Successful(headerBits) =>
           eval(socket.write(ByteVectorChunk(headerBits.bytes ++ `\r\n\r\n`))).flatMap { _ =>
             socket.reads(receiveBufferSize) through httpHeaderAndBody(maxHeaderSize) flatMap { case (respHeaderBytes, body) =>
               responseCodec.decodeValue(respHeaderBytes.bits) match {
-                case Failure(err) => raiseError(new Throwable(s"Failed to decode websocket response: $err"))
+                case Failure(err) => Stream.raiseError[F](new Throwable(s"Failed to decode websocket response: $err"))
                 case Successful(responseHeader) =>
                   impl.validateResponse[F](header, responseHeader, fingerprint).flatMap {
                     case Some(resp) => emit(Some(resp))
@@ -169,11 +165,11 @@ object WebSocket {
       }.getOrElse(Left(badRequest("Missing Sec-WebSocket-Key header")))
 
       for {
-        _ <- version.right
-        _ <- host.right
-        _ <- upgrade.right
-        _ <- connection.right
-        key <- webSocketKey.right
+        _ <- version
+        _ <- host
+        _ <- upgrade
+        _ <- connection
+        key <- webSocketKey
       } yield key
 
     }
@@ -209,7 +205,7 @@ object WebSocket {
      , maxFrameSize: Int
      , client2Server: Boolean
     ):Pipe[F, Byte, Byte] = { source: Stream[F, Byte] => Stream.suspend {
-      Stream.eval(async.unboundedQueue[F, PingPong]).flatMap { pingPongQ =>
+      Stream.eval(Queue.unbounded[F, PingPong]).flatMap { pingPongQ =>
         val metronome: Stream[F, Unit] = pingInterval match {
           case fin: FiniteDuration =>  Stream.awakeEvery[F](fin).map { _ => () }
           case inf => Stream.empty
@@ -269,7 +265,7 @@ object WebSocket {
       *
       * @param maxFrameSize  Maximum size of the frame, including its header.
       */
-    def decodeWebSocketFrame[F[_]](maxFrameSize: Int , flag: Boolean): Pipe[F, Byte, WebSocketFrame] = {
+    def decodeWebSocketFrame[F[_]: RaiseThrowable](maxFrameSize: Int , flag: Boolean): Pipe[F, Byte, WebSocketFrame] = {
       // Returns list of raw frames and tail of
       // the buffer. Tail of the buffer cant be empty
       // (or non-empty if last one frame isn't finalized).
@@ -282,11 +278,11 @@ object WebSocket {
       def go(buff: ByteVector): Stream[F, Byte] => Pull[F, WebSocketFrame, Unit] = { h0 =>
         if (buff.size > maxFrameSize) Pull.raiseError(new Throwable(s"Size of websocket frame exceeded max size: $maxFrameSize, current: ${buff.size}, $buff"))
         else {
-          h0.pull.unconsChunk flatMap {
+          h0.pull.uncons flatMap {
             case None => Pull.done  // todo: is ok to silently ignore buffer remainder ?
 
             case Some((chunk, tl)) =>
-              val data = buff ++ chunk2ByteVector(chunk)
+              val data = buff ++ chunk.toByteVector
               cutFrames(data) match {
                 case (rawFrames, _) if rawFrames.isEmpty => go(data)(tl)
                 case (rawFrames, dataTail) =>
@@ -316,7 +312,7 @@ object WebSocket {
       *
       * @param pongQ    Queue to notify about ping/pong frames.
       */
-    def webSocketFrame2Frame[F[_], A](pongQ: Queue[F, PingPong])(implicit R: Decoder[A]): Pipe[F, WebSocketFrame, Frame[A]] = {
+    def webSocketFrame2Frame[F[_]: RaiseThrowable, A](pongQ: Queue[F, PingPong])(implicit R: Decoder[A]): Pipe[F, WebSocketFrame, Frame[A]] = {
       def decode(from: Vector[WebSocketFrame]):Pull[F, Frame[A], A] = {
         val bs = from.map(_.payload).reduce(_ ++ _)
         R.decodeValue(bs.bits) match {
@@ -347,7 +343,7 @@ object WebSocket {
       * Encodes received frome to WebSocketFrame.
       * @param maskKey  A funtion that allows to generate random masking key. Masking is applied at client -> server direction only.
       */
-    def frame2WebSocketFrame[F[_], A](maskKey: => Option[Int])(implicit W: Encoder[A]): Pipe[F, Frame[A], WebSocketFrame] = {
+    def frame2WebSocketFrame[F[_]: RaiseThrowable, A](maskKey: => Option[Int])(implicit W: Encoder[A]): Pipe[F, Frame[A], WebSocketFrame] = {
       _.flatMap { frame =>
         W.encode(frame.a) match {
           case Failure(err) => Stream.raiseError(new Throwable(s"Failed to encode frame: $err (frame: $frame)"))
@@ -368,7 +364,7 @@ object WebSocket {
       * @tparam F
       * @return
       */
-    def encodeWebSocketFrame[F[_]](flag: Boolean): Pipe[F, WebSocketFrame, Byte] = {
+    def encodeWebSocketFrame[F[_]: RaiseThrowable](flag: Boolean): Pipe[F, WebSocketFrame, Byte] = {
       _.append(Stream.emit(closeFrame)).flatMap { wsf =>
         WebSocketFrameCodec.codec.encode(wsf) match {
           case Failure(err) => Stream.raiseError(new Throwable(s"Failed to encode websocket frame: $err (frame: $wsf)"))
@@ -454,7 +450,7 @@ object WebSocket {
       * @param expectFingerPrint  expected fingerprint in header
       * @return
       */
-    def validateResponse[F[_]](
+    def validateResponse[F[_]: RaiseThrowable](
       request: HttpRequestHeader
       , response: HttpResponseHeader
       , expectFingerPrint: ByteVector

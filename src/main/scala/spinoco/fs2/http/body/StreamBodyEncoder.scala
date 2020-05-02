@@ -46,7 +46,7 @@ object StreamBodyEncoder {
     StreamBodyEncoder(ContentType.BinaryContent(MediaType.`application/octet-stream`, None)) { _.flatMap { bv => Stream.chunk(ByteVectorChunk(bv)) } }
 
   /** encoder that encodes utf8 string, with `text/plain` utf8 content type **/
-  def utf8StringEncoder[F[_]](implicit F: MonadError[F, Throwable]) : StreamBodyEncoder[F, String] =
+  def utf8StringEncoder[F[_]: RaiseThrowable](implicit F: MonadError[F, Throwable]) : StreamBodyEncoder[F, String] =
     byteVectorEncoder mapInF[String] { s =>
       ByteVector.encodeUtf8(s) match {
         case Right(bv) => F.pure(bv)
@@ -55,7 +55,7 @@ object StreamBodyEncoder {
     } withContentType ContentType.TextContent(MediaType.`text/plain`, Some(MIMECharset.`UTF-8`))
 
   /** a convenience wrapper to convert body encoder to StreamBodyEncoder **/
-  def fromBodyEncoder[F[_], A](implicit E: BodyEncoder[A]):StreamBodyEncoder[F, A] =
+  def fromBodyEncoder[F[_]: RaiseThrowable, A](implicit E: BodyEncoder[A]):StreamBodyEncoder[F, A] =
     StreamBodyEncoder(E.contentType) { _.flatMap { a =>
       E.encode(a) match {
         case Failure(err) => Stream.raiseError(new Throwable(s"Failed to encode: $err ($a)"))

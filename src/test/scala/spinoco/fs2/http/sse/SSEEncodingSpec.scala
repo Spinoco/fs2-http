@@ -8,7 +8,6 @@ import org.scalacheck.Prop._
 import scodec.bits.ByteVector
 
 import spinoco.fs2.http.sse.SSEMessage.SSEData
-import spinoco.fs2.http.util.chunk2ByteVector
 
 object SSEEncodingSpec extends Properties("SSEEncoding") {
 
@@ -20,7 +19,7 @@ object SSEEncodingSpec extends Properties("SSEEncoding") {
       , SSEMessage.SSEData(Seq("data4"), Some("event1"), None)
       , SSEMessage.SSEData(Seq("data5"), None, Some("id1"))
       , SSEMessage.SSEData(Seq("data6"), Some("event2"), Some("id2"))
-    ).covary[IO].through(SSEEncoding.encode[IO]).chunks.compile.toVector.map { _ map chunk2ByteVector reduce (_ ++ _) decodeUtf8  }.unsafeRunSync() ?=
+    ).covary[IO].through(SSEEncoding.encode[IO]).chunks.compile.toVector.map { _ map(_.toByteVector) reduce (_ ++ _) decodeUtf8  }.unsafeRunSync() ?=
     Right(
     "data: data1\n\ndata: data2\ndata: data3\n\nevent: event1\ndata: data4\n\ndata: data5\nid: id1\n\nevent: event2\ndata: data6\nid: id2\n\n"
     )

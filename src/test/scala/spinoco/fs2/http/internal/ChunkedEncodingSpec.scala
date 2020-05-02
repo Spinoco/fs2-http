@@ -5,7 +5,6 @@ import fs2._
 import org.scalacheck.Properties
 import org.scalacheck.Prop._
 import scodec.bits.ByteVector
-import spinoco.fs2.http.util.chunk2ByteVector
 
 object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
 
@@ -16,7 +15,7 @@ object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
     (in through ChunkedEncoding.encode through ChunkedEncoding.decode(1024))
     .chunks
     .compile.toVector
-    .map(_.foldLeft(ByteVector.empty){ case (bv, n) => bv ++ chunk2ByteVector(n) })
+    .map(_.foldLeft(ByteVector.empty){ case (bv, n) => bv ++ n.toByteVector })
     .map(_.decodeUtf8)
     .unsafeRunSync() ?= Right(
       strings.mkString
@@ -42,7 +41,7 @@ object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
     .covary[IO]
     .chunks
     .compile.toVector
-    .map(_.foldLeft(ByteVector.empty){ case (bv, n) => bv ++ chunk2ByteVector(n) })
+    .map(_.foldLeft(ByteVector.empty){ case (bv, n) => bv ++ n.toByteVector })
     .map(_.decodeUtf8)
     .unsafeRunSync() ?= Right(
     "Wikipedia in\r\n\r\nchunks."
@@ -62,7 +61,7 @@ object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
     (chunks through ChunkedEncoding.encode)
       .chunks
       .compile.toVector
-      .map(_.foldLeft(ByteVector.empty){ case (bv, n) => bv ++ chunk2ByteVector(n) })
+      .map(_.foldLeft(ByteVector.empty){ case (bv, n) => bv ++ n.toByteVector })
       .map(_.decodeUtf8)
       .unsafeRunSync() ?= Right(wikiExample)
   }
