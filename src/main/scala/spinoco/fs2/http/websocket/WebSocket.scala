@@ -18,7 +18,6 @@ import spinoco.protocol.http.header.value.ProductDescription
 import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 import spinoco.protocol.websocket.{OpCode, WebSocketFrame}
 import spinoco.protocol.websocket.codec.WebSocketFrameCodec
-
 import scala.concurrent.duration._
 import scala.util.Random
 
@@ -76,7 +75,7 @@ object WebSocket {
     * @param responseCodec        Codec to decode HttpResponse Header
     *
     */
-  def client[F[_] : ConcurrentEffect: ContextShift : Timer, I : Decoder, O : Encoder](
+  def client[F[_]: ConcurrentEffect: ContextShift: Timer, I: Decoder, O: Encoder](
     request: WebSocketRequest
     , pipe: Pipe[F, Frame[I], Frame[O]]
     , maxHeaderSize: Int = 4096

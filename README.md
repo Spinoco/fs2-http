@@ -29,23 +29,16 @@ functional library, such as scalaz or cats.
 
 Add this to your sbt build file :
 
-for fs2 0.10.x series:
 ```
-libraryDependencies += "com.spinoco" %% "fs2-http" % "0.3.0"
+libraryDependencies += "com.spinoco" %% "fs2-http" % "0.4.0"
 ```
 
-for fs2 0.9.x series:
-```
-libraryDependencies += "com.spinoco" %% "fs2-http" % "0.2.2"
-```
 
 ### Dependencies
 
 version  |    scala  |   fs2  |  scodec | shapeless      
 ---------|-----------|--------|---------|-----------
-0.4.0-M2 | 2.11, 2.12| 1.0.0-M2 | 1.10.3  | 2.3.2
-0.3.0    | 2.11, 2.12| 0.10.0 | 1.10.3  | 2.3.2
-0.2.2    | 2.11, 2.12| 0.9.5  | 1.10.3  | 2.3.2
+0.4.0    | 2.11, 2.12| 1.0.0  | 1.10.3  | 2.3.2 
 
 
 ## Usage
@@ -112,8 +105,7 @@ fs2-http has support for websocket clients (RFC 6455). A websocket client is bui
 ```
 def wsPipe: Pipe[IO, Frame[String], Frame[String]] = { inbound =>
   val output =  time.awakeEvery[IO](1.second).map { dur => println(s"SENT $dur"); Frame.Text(s" ECHO $dur") }.take(5)
-  inbound.take(5).map { in => println(("RECEIVED ", in)) }
-  .mergeDrainL(output)
+  output.concurrently(inbound.take(5).map { in => println(("RECEIVED ", in)) })
 }
 
 http.client[IO]().flatMap { client =>
@@ -199,4 +191,6 @@ The meaning of the individual routes is as follows:
 
 ### Comparing to http://http4s.org/
 
-Http4s.org is a very usefull library for http, originaly started with scalaz-stream and currently migrating to fs2. The main difference between http4s.org and fs2-http is that unlike http4s.org, fs2-http has a minimal amount of dependencies and is using fs2 for its networking stack (tcp, ssl) as well.
+Http4s.org is a very useful library for http, originally started with scalaz-stream and currently fully supporting fs2. 
+The main differences between http4s.org and fs2-http is that unlike http4s.org, fs2-http is purely functional, including the network stack 
+which is completely impliemented in fs2. Also the fs2-http focuses to be minimalistic both on dependencies and functionality provided. 

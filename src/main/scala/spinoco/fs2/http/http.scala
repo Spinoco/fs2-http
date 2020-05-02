@@ -25,7 +25,6 @@ package object http {
     * @param maxHeaderSize                Maximum size of http header for incoming requests, in bytes
     * @param requestHeaderReceiveTimeout  A timeout to await request header to be fully received.
     *                                     Request will fail, if the header won't be read within this timeout.
-    * @param requestCodec                 Codec for Http Request Header
     * @param service                      Pipe that defines handling of each incoming request and produces a response
     */
   def server[F[_] : ConcurrentEffect : Timer: ContextShift](
@@ -36,8 +35,6 @@ package object http {
      , requestHeaderReceiveTimeout: Duration = 5.seconds
      , requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
      , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
-     , requestFailure : Throwable => Stream[F, HttpResponse[F]] = HttpServer.handleRequestParseError[F] _
-     , sendFailure: (Option[HttpRequestHeader], HttpResponse[F], Throwable) => Stream[F, Nothing] = HttpServer.handleSendFailure[F] _
    )(
      service:  (HttpRequestHeader, Stream[F,Byte]) => Stream[F,HttpResponse[F]]
    )(socketGroup: SocketGroup):Stream[F,Unit] = HttpServer(
@@ -49,8 +46,8 @@ package object http {
     , responseCodec = responseCodec
     , bindTo = bindTo
     , service = service
-    , requestFailure = requestFailure
-    , sendFailure = sendFailure
+    , requestFailure = HttpServer.handleRequestParseError[F] _
+    , sendFailure = HttpServer.handleSendFailure[F] _
   )(socketGroup)
 
 

@@ -46,7 +46,8 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
   protected def body: Stream[F, Byte]
 
   /** encodes body `A` given BodyEncoder exists **/
-  def withBody[A](a: A)(implicit W: BodyEncoder[A], raise: RaiseThrowable[F]): Self = {
+
+  def withBody[A](a: A)(implicit W: BodyEncoder[A], ev: RaiseThrowable[F]): Self = {
     W.encode(a) match {
       case Failure(err) => updateBody(body = Stream.raiseError(new Throwable(s"failed to encode $a: $err")))
       case Successful(bytes) =>
@@ -62,8 +63,8 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
   }
 
   /** encodes body as utf8 string **/
-  def withUtf8Body(s: String)(implicit raise: RaiseThrowable[F]): Self =
-    withBody(s)(BodyEncoder.utf8String, raise)
+  def withUtf8Body(s: String)(implicit ev: RaiseThrowable[F]): Self =
+    withBody(s)(BodyEncoder.utf8String, ev)
 
   /** Decodes body with supplied decoder of `A` **/
   def bodyAs[A](implicit D: BodyDecoder[A], F: Sync[F]): F[Attempt[A]] = {
@@ -161,8 +162,8 @@ final case class HttpRequest[F[_]](
     * That means instead of passing query as part of request, they are encoded as utf8 body.
     * @return
     */
-  def withQueryBodyEncoded(q:Uri.Query)(implicit raise: RaiseThrowable[F]): Self =
-    withBody(q)(BodyEncoder.`x-www-form-urlencoded`, raise)
+  def withQueryBodyEncoded(q:Uri.Query)(implicit ev: RaiseThrowable[F]): Self =
+    withBody(q)(BodyEncoder.`x-www-form-urlencoded`, ev)
 
   def bodyAsQuery(implicit F: Sync[F]):F[Attempt[Uri.Query]] =
     bodyAs[Uri.Query](BodyDecoder.`x-www-form-urlencoded`, F)
@@ -280,7 +281,7 @@ final case class HttpResponse[F[_]](
     self.copy(header= self.header.copy(headers = headers))
 
   /** encodes supplied stream of `A` as SSE stream in body **/
-  def sseBody[A](in: Stream[F, A])(implicit E: SSEEncoder[A], raise: RaiseThrowable[F]): Self =
+  def sseBody[A](in: Stream[F, A])(implicit E: SSEEncoder[A], ev: RaiseThrowable[F]): Self =
      self
      .updateBody(in through SSEEncoding.encodeA[F, A])
      .updateHeaders(withHeaders(spinoco.fs2.http.internal.swapHeader(`Content-Type`(ContentType.TextContent(MediaType.`text/event-stream`, None)))))

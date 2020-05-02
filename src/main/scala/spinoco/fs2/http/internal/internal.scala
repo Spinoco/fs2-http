@@ -127,7 +127,6 @@ package object internal {
       socket
       , TLSParameters(serverNames = Some(List[SNIServerName](new SNIHostName(server.host))))
     )
-
   }
 
 }

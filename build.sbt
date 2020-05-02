@@ -30,8 +30,8 @@ lazy val commonSettings = Seq(
      }
    },
    scalacOptions in (Compile, console) ~= {_.filterNot("-Ywarn-unused-import" == _)},
+   scalacOptions in (Test, console) := (scalacOptions in (Compile, console)).value,
    libraryDependencies ++= Seq(
-//     "com.github.mpilquist" %% "simulacrum" % "0.13.0"
      "org.scalacheck" %% "scalacheck" % "1.14.3" % "test"
      , "com.spinoco" %% "protocol-http" % "0.4.0-M1"
      , "com.spinoco" %% "protocol-websocket" % "0.4.0-M1"

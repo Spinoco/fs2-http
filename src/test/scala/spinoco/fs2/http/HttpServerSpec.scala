@@ -73,7 +73,7 @@ object HttpServerSpec extends Properties("HttpServer"){
     def clients(socketGroup: SocketGroup, tls: TLSContext): Stream[IO, Stream[IO, (Int, Boolean)]] = {
       val request =
         HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
-       .withBody("Hello")(BodyEncoder.utf8String, implicitly[RaiseThrowable[IO]])
+       .withBody("Hello")(BodyEncoder.utf8String, RaiseThrowable.fromApplicativeError[IO])
 
       Stream.eval(client[IO]()(socketGroup, tls)).flatMap { httpClient =>
         Stream.range(0,count).unchunk.map { idx =>
@@ -116,12 +116,12 @@ object HttpServerSpec extends Properties("HttpServer"){
     Stream.resource(httpResources).flatMap { case (group, tls) =>
       (Stream.sleep_[IO](3.second) ++
         (Stream(
-          http.server[IO](
-            new InetSocketAddress("127.0.0.1", 9090)
-            , requestFailure = _ => {
-              Stream(HttpResponse[IO](HttpStatusCode.BadRequest)).covary[IO]
-            }
-          )(failRouteService)(group).drain
+          HttpServer[IO](
+            bindTo = new InetSocketAddress("127.0.0.1", 9090)
+            , service = failRouteService
+            , requestFailure = _ => { Stream(HttpResponse[IO](HttpStatusCode.BadRequest)).covary[IO] }
+            , sendFailure = HttpServer.handleSendFailure[IO] _
+          )(group).drain
         ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients(group, tls)).parJoin[IO, (Int, Boolean)](MaxConcurrency))
         .take(count)
         .filter { case (_, success) => success }
@@ -150,10 +150,12 @@ object HttpServerSpec extends Properties("HttpServer"){
     Stream.resource(httpResources).flatMap { case (group, tls) =>
       (Stream.sleep_[IO](3.second) ++
         (Stream(
-          http.server[IO](
-            new InetSocketAddress("127.0.0.1", 9090)
+          HttpServer[IO](
+            bindTo = new InetSocketAddress("127.0.0.1", 9090)
+            , service = failingResponse
+            , requestFailure = HttpServer.handleRequestParseError[IO] _
             , sendFailure = (_, _, _) => Stream.empty
-          )(failingResponse)(group).drain
+          )(group).drain
         ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients(group, tls)).parJoin[IO, (Int, Boolean)](MaxConcurrency))
         .take(count)
         .filter { case (_, success) => success }

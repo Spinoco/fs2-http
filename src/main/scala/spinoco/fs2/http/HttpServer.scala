@@ -90,7 +90,7 @@ object HttpServer {
   }
 
   /** default handler for parsing request errors **/
-  def handleRequestParseError[F[_]](err: Throwable): Stream[F, HttpResponse[F]] = {
+  def handleRequestParseError[F[_] : RaiseThrowable](err: Throwable): Stream[F, HttpResponse[F]] = {
     Stream.suspend {
       err.printStackTrace()
       Stream.emit(HttpResponse[F](HttpStatusCode.BadRequest))
