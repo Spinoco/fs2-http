@@ -1,12 +1,12 @@
 package spinoco.fs2.http
 
 import java.net.InetSocketAddress
-import java.nio.channels.AsynchronousChannelGroup
 
-import cats.effect.{ConcurrentEffect, Sync, Timer}
+import cats.effect.{ConcurrentEffect, ContextShift, Sync}
 import cats.syntax.all._
 import fs2._
 import fs2.concurrent.SignallingRef
+import fs2.io.tcp.SocketGroup
 import scodec.Codec
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader, HttpStatusCode}
@@ -34,9 +34,9 @@ object HttpServer {
     *                                     This is also evaluated when the server failed to process the request itself (i.e. `service` did not handle the failure )
     * @param sendFailure                  A function to be evaluated on failure to process the the response.
     *                                     Request is not suplied if failure happened before request was constructed.
-    *
+    * @param socketGroup                  Group of sockets from which to create the server socket.
     */
-  def apply[F[_] : ConcurrentEffect : Timer](
+  def mk[F[_]: ConcurrentEffect: ContextShift](
     maxConcurrent: Int = Int.MaxValue
     , receiveBufferSize: Int = 256 * 1024
     , maxHeaderSize: Int = 10 *1024
@@ -48,19 +48,18 @@ object HttpServer {
     , requestFailure : Throwable => Stream[F, HttpResponse[F]]
     , sendFailure: (Option[HttpRequestHeader], HttpResponse[F], Throwable) => Stream[F, Nothing]
   )(
-    implicit
-    AG: AsynchronousChannelGroup
+    socketGroup: SocketGroup
   ): Stream[F, Unit] = {
     import Stream._
-    import internal._
+    import spinoco.fs2.http.internal._
     val (initial, readDuration) = requestHeaderReceiveTimeout match {
       case fin: FiniteDuration => (true, fin)
       case _ => (false, 0.millis)
     }
 
-    io.tcp.server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
+    socketGroup.server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
       Stream.resource(resource).flatMap { socket =>
-      eval(SignallingRef(initial)).flatMap { timeoutSignal =>
+      eval(SignallingRef[F, Boolean](initial)).flatMap { timeoutSignal =>
         readWithTimeout[F](socket, readDuration, timeoutSignal.get, receiveBufferSize)
         .through(HttpRequest.fromStream(maxHeaderSize, requestCodec))
         .flatMap { case (request, body) =>

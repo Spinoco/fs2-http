@@ -22,11 +22,13 @@ object WebSocketClientApp extends App {
 
   implicit val codecString: Codec[String] = utf8
 
-  WebSocket.client(
-    WebSocketRequest.ws("echo.websocket.org", "/", QueryParameter.single("encoding", "text"))
-    , wspipe
-  ).map { x =>
-    println(("RESULT OF WS", x))
+  Stream.resource(httpResources).flatMap { case (group, tls) =>
+    WebSocket.client(
+      WebSocketRequest.ws("echo.websocket.org", "/", QueryParameter.single("encoding", "text"))
+      , wspipe
+    )(group, tls).map { x =>
+      println(("RESULT OF WS", x))
+    }
   }.compile.drain.unsafeRunSync()
 
 }

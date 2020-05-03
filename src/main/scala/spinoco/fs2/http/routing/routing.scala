@@ -12,7 +12,6 @@ import spinoco.fs2.http.routing.MatchResult._
 import spinoco.fs2.http.routing.Matcher.{Eval, Match}
 import spinoco.protocol.http.header._
 import spinoco.protocol.http.{HttpMethod, HttpRequestHeader, HttpStatusCode, Uri}
-import spinoco.fs2.http.util.chunk2ByteVector
 import spinoco.fs2.http.websocket.{Frame, WebSocket}
 import scala.concurrent.duration._
 
@@ -188,7 +187,7 @@ package object routing {
           F.map(s.chunks.compile.toVector) { chunks =>
             val bytes =
               if (chunks.isEmpty) ByteVector.empty
-              else chunks.map(chunk2ByteVector).reduce(_ ++ _)
+              else chunks.map(_.toByteVector).reduce(_ ++ _)
             D.decode(bytes, ct.value)
           }
         }}.flatMap {

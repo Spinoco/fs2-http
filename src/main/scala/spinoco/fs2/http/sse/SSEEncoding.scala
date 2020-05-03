@@ -5,7 +5,6 @@ import fs2._
 import scodec.Attempt
 import scodec.bits.ByteVector
 
-import spinoco.fs2.http.util.chunk2ByteVector
 import scala.util.Try
 import scala.concurrent.duration._
 
@@ -35,7 +34,7 @@ object SSEEncoding {
   }
 
   /** encodes stream of `A` as SSE Stream **/
-  def encodeA[F[_] : RaiseThrowable, A](implicit E: SSEEncoder[A]): Pipe[F, A, Byte] = {
+  def encodeA[F[_]: RaiseThrowable, A](implicit E: SSEEncoder[A]): Pipe[F, A, Byte] = {
     _ flatMap { a => E.encode(a) match {
       case Attempt.Successful(msg) => Stream.emit(msg)
       case Attempt.Failure(err) => Stream.raiseError(new Throwable(s"Failed to encode $a : $err"))
@@ -47,14 +46,14 @@ object SSEEncoding {
   /**
     * Decodes stream of bytes to SSE Messages
     */
-  def decode[F[_] : RaiseThrowable]: Pipe[F, Byte, SSEMessage] = {
+  def decode[F[_]: RaiseThrowable]: Pipe[F, Byte, SSEMessage] = {
 
     // drops initial Byte Order Mark, if present
     def dropInitial(buff:ByteVector): Pipe[F, Byte, Byte] = {
       _.pull.uncons.flatMap {
         case None => Pull.raiseError(new Throwable("SSE Socket did not contain any data"))
         case Some((chunk, next)) =>
-          val all = buff ++ chunk2ByteVector(chunk)
+          val all = buff ++ chunk.toByteVector
           if (all.size < 2) (next through dropInitial(all)).pull.echo
           else {
             if (all.startsWith(StartBom)) Pull.output(ByteVectorChunk(all.drop(2))) >> next.pull.echo
@@ -132,7 +131,7 @@ object SSEEncoding {
   }
 
   /** decodes stream of sse messages to `A`, given supplied decoder **/
-  def decodeA[F[_] : RaiseThrowable, A](implicit D: SSEDecoder[A]): Pipe[F, Byte, A] = {
+  def decodeA[F[_]: RaiseThrowable, A](implicit D: SSEDecoder[A]): Pipe[F, Byte, A] = {
     _ through decode flatMap { msg =>
       D.decode(msg) match {
         case Attempt.Successful(a) => Stream.emit(a)

@@ -22,7 +22,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
 
   /** yields to true, if body of this request shall be chunked **/
   lazy val bodyIsChunked : Boolean =
-    withHeaders(internal.bodyIsChunked)
+    withHeaders(spinoco.fs2.http.internal.bodyIsChunked)
 
   /** allows to stream arbitrary sized stream of `A` to remote party (i.e. upload) **/
   def withStreamBody[A](body: Stream[F, A])(implicit E: StreamBodyEncoder[F, A]): Self = {
@@ -37,7 +37,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
 
   /** sets body size to supplied value **/
   def withBodySize(sz: Long): Self =
-    updateHeaders(withHeaders(internal.swapHeader(`Content-Length`(sz))))
+    updateHeaders(withHeaders(spinoco.fs2.http.internal.swapHeader(`Content-Length`(sz))))
 
   /** gets body size, if one specified **/
   def bodySize: Option[Long] =
@@ -46,6 +46,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
   protected def body: Stream[F, Byte]
 
   /** encodes body `A` given BodyEncoder exists **/
+
   def withBody[A](a: A)(implicit W: BodyEncoder[A], ev: RaiseThrowable[F]): Self = {
     W.encode(a) match {
       case Failure(err) => updateBody(body = Stream.raiseError(new Throwable(s"failed to encode $a: $err")))
@@ -70,7 +71,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
     withHeaders { _.collectFirst { case `Content-Type`(ct) => ct } match {
       case None => F.pure(Attempt.failure(Err("Content type is not known")))
       case Some(ct) =>
-        F.map(self.body.chunks.map(util.chunk2ByteVector).compile.toVector) { bs =>
+        F.map(self.body.chunks.map(_.toByteVector).compile.toVector) { bs =>
           if (bs.isEmpty) Attempt.failure(Err("Body is empty"))
           else D.decode(bs.reduce(_ ++ _), ct)
         }
@@ -79,7 +80,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
 
   /** gets body as stream of byteVectors **/
   def bodyAsByteVectorStream:Stream[F,ByteVector] =
-    self.body.chunks.map(util.chunk2ByteVector)
+    self.body.chunks.map(_.toByteVector)
 
   /** decodes body as string with encoding supplied in ContentType **/
   def bodyAsString(implicit F: Sync[F]): F[Attempt[String]] =
@@ -87,7 +88,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
 
   /** updates content type to one specified **/
   def withContentType(ct: ContentType): Self =
-    updateHeaders(withHeaders(internal.swapHeader(`Content-Type`(ct))))
+    updateHeaders(withHeaders(spinoco.fs2.http.internal.swapHeader(`Content-Type`(ct))))
 
   /** gets ContentType, if one specififed **/
   def contentType: Option[ContentType] =
@@ -96,7 +97,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
 
   /** configures encoding as chunked **/
   def chunkedEncoding: Self =
-    updateHeaders(withHeaders(internal.swapHeader(`Transfer-Encoding`(List("chunked")))))
+    updateHeaders(withHeaders(spinoco.fs2.http.internal.swapHeader(`Transfer-Encoding`(List("chunked")))))
 
   def withHeaders[A](f: List[HttpHeader] => A): A = self match {
     case HttpRequest(_,_,header,_) => f(header.headers)
@@ -190,10 +191,10 @@ object HttpRequest {
       )
       , body = Stream.empty)
 
-  def post[F[_] : RaiseThrowable, A](uri: Uri, a: A)(implicit E: BodyEncoder[A]): HttpRequest[F] =
+  def post[F[_]: RaiseThrowable, A](uri: Uri, a: A)(implicit E: BodyEncoder[A]): HttpRequest[F] =
     get(uri).withMethod(HttpMethod.POST).withBody(a)
 
-  def put[F[_] : RaiseThrowable, A](uri: Uri, a: A)(implicit E: BodyEncoder[A]): HttpRequest[F] =
+  def put[F[_]: RaiseThrowable, A](uri: Uri, a: A)(implicit E: BodyEncoder[A]): HttpRequest[F] =
     get(uri).withMethod(HttpMethod.PUT).withBody(a)
 
   def delete[F[_]](uri: Uri): HttpRequest[F] =
@@ -210,11 +211,11 @@ object HttpRequest {
     * @tparam F
     * @return
     */
-  def fromStream[F[_] : RaiseThrowable](
+  def fromStream[F[_]: RaiseThrowable](
     maxHeaderSize: Int
     , headerCodec: Codec[HttpRequestHeader]
   ): Pipe[F, Byte, (HttpRequestHeader, Stream[F, Byte])] = {
-    import internal._
+    import spinoco.fs2.http.internal._
     _ through httpHeaderAndBody(maxHeaderSize) flatMap { case (header, bodyRaw) =>
       headerCodec.decodeValue(header.bits) match {
         case Failure(err) => Stream.raiseError(new Throwable(s"Decoding of the request header failed: $err"))
@@ -240,11 +241,11 @@ object HttpRequest {
     * @param request        request to convert to stream
     * @param headerCodec    Codec to convert the header to bytes
     */
-  def toStream[F[_] : RaiseThrowable](
+  def toStream[F[_]: RaiseThrowable](
     request: HttpRequest[F]
     , headerCodec: Codec[HttpRequestHeader]
   ): Stream[F, Byte] = Stream.suspend {
-    import internal._
+    import spinoco.fs2.http.internal._
 
     headerCodec.encode(request.header) match {
       case Failure(err) => Stream.raiseError(new Throwable(s"Encoding of the header failed: $err"))
@@ -283,7 +284,7 @@ final case class HttpResponse[F[_]](
   def sseBody[A](in: Stream[F, A])(implicit E: SSEEncoder[A], ev: RaiseThrowable[F]): Self =
      self
      .updateBody(in through SSEEncoding.encodeA[F, A])
-     .updateHeaders(withHeaders(internal.swapHeader(`Content-Type`(ContentType.TextContent(MediaType.`text/event-stream`, None)))))
+     .updateHeaders(withHeaders(spinoco.fs2.http.internal.swapHeader(`Content-Type`(ContentType.TextContent(MediaType.`text/event-stream`, None)))))
 }
 
 
@@ -301,11 +302,11 @@ object HttpResponse {
   /**
     * Decodes stream of bytes as HttpResponse.
     */
-  def fromStream[F[_] : RaiseThrowable](
+  def fromStream[F[_]: RaiseThrowable](
     maxHeaderSize: Int
     , responseCodec: Codec[HttpResponseHeader]
   ): Pipe[F,Byte, HttpResponse[F]] = {
-    import internal._
+    import spinoco.fs2.http.internal._
 
     _ through httpHeaderAndBody(maxHeaderSize) flatMap { case (header, bodyRaw) =>
       responseCodec.decodeValue(header.bits) match {
@@ -325,11 +326,11 @@ object HttpResponse {
 
 
   /** Encodes response to stream of bytes **/
-  def toStream[F[_] : RaiseThrowable](
+  def toStream[F[_]: RaiseThrowable](
     response: HttpResponse[F]
     , headerCodec: Codec[HttpResponseHeader]
   ): Stream[F, Byte] = Stream.suspend {
-    import internal._
+    import spinoco.fs2.http.internal._
 
     headerCodec.encode(response.header) match {
       case Failure(err) => Stream.raiseError(new Throwable(s"Failed to encode http response : $response :$err "))

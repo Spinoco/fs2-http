@@ -9,8 +9,8 @@ lazy val contributors = Seq(
 
 lazy val commonSettings = Seq(
    organization := "com.spinoco",
-   scalaVersion := "2.12.6",
-   crossScalaVersions := Seq("2.11.12", "2.12.6"),
+   scalaVersion := "2.12.11",
+   crossScalaVersions := Seq("2.12.11", "2.13.0"),
    scalacOptions ++= Seq(
     "-feature",
     "-deprecation",
@@ -19,23 +19,37 @@ lazy val commonSettings = Seq(
     "-language:existentials",
     "-language:postfixOps",
     "-Xfatal-warnings",
-    "-Yno-adapted-args",
-    "-Ywarn-value-discard",
-    "-Ywarn-unused-import"
+    "-Ywarn-value-discard"
    ),
+   scalacOptions ++= {
+     CrossVersion.partialVersion(scalaVersion.value) match {
+       case Some((2, v)) if v >= 13 =>
+         Seq("-Ymacro-annotations", "-Ywarn-unused:imports")
+       case _ =>
+         Seq("-Yno-adapted-args", "-Ywarn-unused-import")
+     }
+   },
    scalacOptions in (Compile, console) ~= {_.filterNot("-Ywarn-unused-import" == _)},
    scalacOptions in (Test, console) := (scalacOptions in (Compile, console)).value,
    libraryDependencies ++= Seq(
-     compilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
-     , "org.scodec" %% "scodec-bits" % "1.1.4"
-     , "org.scodec" %% "scodec-core" % "1.10.3"
-     , "com.spinoco" %% "protocol-http" % "0.3.15"
-     , "com.spinoco" %% "protocol-websocket" % "0.3.15"
-     , "co.fs2" %% "fs2-core" % "1.0.0"
-     , "co.fs2" %% "fs2-io" % "1.0.0"
-     , "com.spinoco" %% "fs2-crypto" % "0.4.0"
-     , "org.scalacheck" %% "scalacheck" % "1.13.4" % "test"
+     "org.scalacheck" %% "scalacheck" % "1.14.3" % "test"
+     , "com.spinoco" %% "protocol-http" % "0.4.0-M1"
+     , "com.spinoco" %% "protocol-websocket" % "0.4.0-M1"
+     , "co.fs2" %% "fs2-core" % "2.3.0"
+     , "co.fs2" %% "fs2-io" % "2.3.0"
    ),
+   libraryDependencies ++= {
+     CrossVersion.partialVersion(scalaVersion.value) match {
+       case Some((2, v)) if v <= 12 =>
+         Seq(
+           compilerPlugin("org.scalamacros" % "paradise" % "2.1.1" cross CrossVersion.full)
+         )
+       case _ =>
+         // if scala 2.13.0-M4 or later, macro annotations merged into scala-reflect
+         // https://github.com/scala/scala/pull/6606
+         Nil
+     }
+   },
    scmInfo := Some(ScmInfo(url("https://github.com/Spinoco/fs2-http"), "git@github.com:Spinoco/fs2-http.git")),
    homepage := None,
    licenses += ("MIT", url("http://opensource.org/licenses/MIT")),

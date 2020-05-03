@@ -13,7 +13,8 @@ object HttpClientApp extends App {
 
 
 
-  http.client[IO]().flatMap { httpClient =>
+  httpResources.use { case (group, tls) =>
+  http.client[IO]()(group, tls).flatMap { httpClient =>
 
     httpClient.request(HttpRequest.get(Uri.https("www.google.cz", "/"))).flatMap { resp =>
       Stream.eval(resp.bodyAsString)
@@ -21,5 +22,5 @@ object HttpClientApp extends App {
       println
     }
 
-  }.unsafeRunSync()
+  }}.unsafeRunSync()
 }

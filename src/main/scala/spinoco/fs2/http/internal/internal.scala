@@ -3,20 +3,17 @@ package spinoco.fs2.http
 import java.net.InetSocketAddress
 import java.util.concurrent.TimeoutException
 
-import javax.net.ssl.SSLContext
-import cats.effect.{Concurrent, Sync, Timer}
-import javax.net.ssl.{SNIHostName, SNIServerName, SSLContext}
-import cats.syntax.all._
+import javax.net.ssl.{SNIHostName, SNIServerName}
+import cats.effect.{Concurrent, ContextShift, Resource, Sync}
 import fs2.Chunk.ByteVectorChunk
 import fs2.Stream._
 import fs2.io.tcp.Socket
+import fs2.io.tls.{TLSContext, TLSParameters}
 import fs2.{Stream, _}
 import scodec.bits.ByteVector
-import spinoco.fs2.crypto.io.tcp.TLSSocket
 import spinoco.protocol.http.{HostPort, HttpScheme, Scheme}
 import spinoco.protocol.http.header.{HttpHeader, `Transfer-Encoding`}
 
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.reflect.ClassTag
 
@@ -46,13 +43,13 @@ package object internal {
   /**
     * From the stream of bytes this extracts Http Header and body part.
     */
-  def httpHeaderAndBody[F[_] : RaiseThrowable](maxHeaderSize: Int): Pipe[F, Byte, (ByteVector, Stream[F, Byte])] = {
+  def httpHeaderAndBody[F[_]: RaiseThrowable](maxHeaderSize: Int): Pipe[F, Byte, (ByteVector, Stream[F, Byte])] = {
     def go(buff: ByteVector, in: Stream[F, Byte]): Pull[F, (ByteVector, Stream[F, Byte]), Unit] = {
       in.pull.uncons flatMap {
         case None =>
           Pull.raiseError(new Throwable(s"Incomplete Header received (sz = ${buff.size}): ${buff.decodeUtf8}"))
         case Some((chunk, tl)) =>
-          val bv = spinoco.fs2.http.util.chunk2ByteVector(chunk)
+          val bv = chunk.toByteVector
           val all = buff ++ bv
           val idx = all.indexOfSlice(`\r\n\r\n`)
           if (idx < 0) {
@@ -97,7 +94,7 @@ package object internal {
     * @param shallTimeout   If true, timeout will be applied, if false timeout won't be applied.
     * @param chunkSize      Size of chunk to read up to
     */
-  def readWithTimeout[F[_] : Sync](
+  def readWithTimeout[F[_]: Sync](
     socket: Socket[F]
     , timeout: FiniteDuration
     , shallTimeout: F[Boolean]
@@ -107,7 +104,7 @@ package object internal {
       eval(shallTimeout).flatMap { shallTimeout =>
         if (!shallTimeout) socket.reads(chunkSize, None)
         else {
-          if (remains <= 0.millis) Stream.raiseError(new TimeoutException())
+          if (remains <= 0.millis) Stream.raiseError[F](new TimeoutException())
           else {
             eval(Sync[F].delay(System.currentTimeMillis())).flatMap { start =>
             eval(socket.read(chunkSize, Some(remains))).flatMap { read =>
@@ -124,19 +121,12 @@ package object internal {
   }
 
   /** creates a function that lifts supplied socket to secure socket **/
-  def clientLiftToSecure[F[_] : Concurrent : Timer](sslES: => ExecutionContext, sslContext: => SSLContext)(socket: Socket[F], server: HostPort): F[Socket[F]] = {
-    import collection.JavaConverters._
-    Sync[F].delay {
-      val engine = sslContext.createSSLEngine(server.host, server.port.getOrElse(443))
-      engine.setUseClientMode(true)
-      val sslParams = engine.getSSLParameters
-      sslParams.setServerNames(List[SNIServerName](new SNIHostName(server.host)).asJava)
-      engine.setSSLParameters(sslParams)
-      engine
-    } flatMap {
-      TLSSocket.instance(socket, _, sslES)
-      .map(identity) //This is here just to make scala understand types properly
-    }
+  def clientLiftToSecure[F[_] : Concurrent : ContextShift](tlsContext: TLSContext)(socket: Socket[F], server: HostPort): Resource[F, Socket[F]] = {
+
+    tlsContext.client(
+      socket
+      , TLSParameters(serverNames = Some(List[SNIServerName](new SNIHostName(server.host))))
+    )
   }
 
 }
