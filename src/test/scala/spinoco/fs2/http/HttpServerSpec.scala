@@ -116,7 +116,7 @@ object HttpServerSpec extends Properties("HttpServer"){
     Stream.resource(httpResources).flatMap { case (group, tls) =>
       (Stream.sleep_[IO](3.second) ++
         (Stream(
-          HttpServer[IO](
+          HttpServer.mk[IO](
             bindTo = new InetSocketAddress("127.0.0.1", 9090)
             , service = failRouteService
             , requestFailure = _ => { Stream(HttpResponse[IO](HttpStatusCode.BadRequest)).covary[IO] }
@@ -150,7 +150,7 @@ object HttpServerSpec extends Properties("HttpServer"){
     Stream.resource(httpResources).flatMap { case (group, tls) =>
       (Stream.sleep_[IO](3.second) ++
         (Stream(
-          HttpServer[IO](
+          HttpServer.mk[IO](
             bindTo = new InetSocketAddress("127.0.0.1", 9090)
             , service = failingResponse
             , requestFailure = HttpServer.handleRequestParseError[IO] _

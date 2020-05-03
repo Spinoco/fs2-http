@@ -2,7 +2,7 @@ package spinoco.fs2.http
 
 import java.net.InetSocketAddress
 
-import cats.effect.{ConcurrentEffect, ContextShift, Sync, Timer}
+import cats.effect.{ConcurrentEffect, ContextShift, Sync}
 import cats.syntax.all._
 import fs2._
 import fs2.concurrent.SignallingRef
@@ -34,9 +34,9 @@ object HttpServer {
     *                                     This is also evaluated when the server failed to process the request itself (i.e. `service` did not handle the failure )
     * @param sendFailure                  A function to be evaluated on failure to process the the response.
     *                                     Request is not suplied if failure happened before request was constructed.
-    *
+    * @param socketGroup                  Group of sockets from which to create the server socket.
     */
-  def apply[F[_] : ConcurrentEffect : Timer: ContextShift](
+  def mk[F[_]: ConcurrentEffect: ContextShift](
     maxConcurrent: Int = Int.MaxValue
     , receiveBufferSize: Int = 256 * 1024
     , maxHeaderSize: Int = 10 *1024

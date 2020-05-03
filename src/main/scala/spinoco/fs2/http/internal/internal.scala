@@ -94,7 +94,7 @@ package object internal {
     * @param shallTimeout   If true, timeout will be applied, if false timeout won't be applied.
     * @param chunkSize      Size of chunk to read up to
     */
-  def readWithTimeout[F[_] : Sync](
+  def readWithTimeout[F[_]: Sync](
     socket: Socket[F]
     , timeout: FiniteDuration
     , shallTimeout: F[Boolean]

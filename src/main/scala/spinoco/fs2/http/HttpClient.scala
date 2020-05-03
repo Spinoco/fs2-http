@@ -1,9 +1,10 @@
 package spinoco.fs2.http
 
 
-import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, Sync, Timer}
+import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, Timer}
 import java.util.concurrent.TimeUnit
 
+import cats.Applicative
 import cats.effect._
 import fs2._
 import fs2.concurrent.SignallingRef
@@ -100,23 +101,24 @@ trait HttpClient[F[_]] {
 }
 
 
- object HttpClient {
+object HttpClient {
 
+  @inline def apply[F[_]](implicit instance: HttpClient[F]): HttpClient[F] = instance
 
-   /**
-     * Creates an Http Client
-     * @param requestCodec    Codec used to decode request header
-     * @param responseCodec   Codec used to encode response header
-     * @param sslExecutionContext     Strategy used when communication with SSL (https or wss)
-     * @param sslContext      SSL Context to use with SSL Client (https, wss)
-     */
-  def apply[F[_] : ConcurrentEffect : ContextShift : Timer](
+  /**
+    * Creates an Http Client
+    * @param requestCodec    Codec used to decode request header
+    * @param responseCodec   Codec used to encode response header
+    * @param socketGroup     Group of sockets from which to create the client for http request.
+    * @param tlsContext      The TLS context used for elevating the http socket to https.
+    */
+  def mk[F[_]: ConcurrentEffect: ContextShift: Timer](
    requestCodec         : Codec[HttpRequestHeader]
    , responseCodec      : Codec[HttpResponseHeader]
   )(
     socketGroup: SocketGroup
     , tlsContext: TLSContext
-  ):F[HttpClient[F]] = Sync[F].delay {
+  ):F[HttpClient[F]] = Applicative[F].pure {
     new HttpClient[F] {
       def request(
        request: HttpRequest[F]
@@ -188,9 +190,6 @@ trait HttpClient[F[_]] {
            }
        }
      }
-
    }
-
-
 }
 

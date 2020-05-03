@@ -26,8 +26,9 @@ package object http {
     * @param requestHeaderReceiveTimeout  A timeout to await request header to be fully received.
     *                                     Request will fail, if the header won't be read within this timeout.
     * @param service                      Pipe that defines handling of each incoming request and produces a response
+    * @param socketGroup                  Group of sockets from which to create the server socket.
     */
-  def server[F[_] : ConcurrentEffect : Timer: ContextShift](
+  def server[F[_] : ConcurrentEffect: ContextShift](
      bindTo: InetSocketAddress
      , maxConcurrent: Int = Int.MaxValue
      , receiveBufferSize: Int = 256 * 1024
@@ -37,7 +38,7 @@ package object http {
      , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
    )(
      service:  (HttpRequestHeader, Stream[F,Byte]) => Stream[F,HttpResponse[F]]
-   )(socketGroup: SocketGroup):Stream[F,Unit] = HttpServer(
+   )(socketGroup: SocketGroup):Stream[F,Unit] = HttpServer.mk(
     maxConcurrent = maxConcurrent
     , receiveBufferSize = receiveBufferSize
     , maxHeaderSize = maxHeaderSize
@@ -56,14 +57,17 @@ package object http {
     *
     * @param requestCodec    Codec used to decode request header
     * @param responseCodec   Codec used to encode response header
+    * @param socketGroup     Group of sockets from which to create the client for http request.
+    * @param tlsContext      The TLS context used for elevating the http socket to https.
     */
-  def client[F[_]: ConcurrentEffect : Timer: ContextShift](
+  def client[F[_]: ConcurrentEffect :Timer: ContextShift](
     requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
     , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
   )(
     socketGroup: SocketGroup
     , tlsContext: TLSContext
-  ):F[HttpClient[F]] =
-    HttpClient(requestCodec, responseCodec)(socketGroup, tlsContext)
+  ):F[HttpClient[F]] = {
+    HttpClient.mk(requestCodec, responseCodec)(socketGroup, tlsContext)
+  }
 
 }
