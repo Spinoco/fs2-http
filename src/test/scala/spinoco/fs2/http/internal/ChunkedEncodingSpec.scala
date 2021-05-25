@@ -50,6 +50,21 @@ object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
 
   }
 
+  property("encoded-wiki-example-by-2") = secure {
+
+
+    (Stream.chunk[IO, Byte](Chunk.bytes(wikiExample.getBytes)).chunkN(2).flatMap(Stream.chunk) through ChunkedEncoding.decode(1024))
+      .covary[IO]
+      .chunks
+      .compile.toVector
+      .map(_.foldLeft(ByteVector.empty){ case (bv, n) => bv ++ chunk2ByteVector(n) })
+      .map(_.decodeUtf8)
+      .unsafeRunSync() ?= Right(
+      "Wikipedia in\r\n\r\nchunks."
+    )
+
+  }
+
   property("decoded-wiki-example") = secure {
     val chunks:Stream[IO,Byte] = Stream.emits(
       Seq(
