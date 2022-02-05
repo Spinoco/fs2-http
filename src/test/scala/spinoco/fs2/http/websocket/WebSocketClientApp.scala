@@ -8,11 +8,13 @@ import fs2._
 import scodec.Codec
 import scodec.codecs._
 import spinoco.protocol.http.Uri.QueryParameter
+import cats.effect.unsafe.implicits.global
+import fs2.io.net.Network
+import fs2.io.net.tls.TLSContext
 
 
 object WebSocketClientApp extends App {
 
-  import spinoco.fs2.http.Resources._
 
 
   def wspipe: Pipe[IO, Frame[String], Frame[String]] = { inbound =>
@@ -21,12 +23,14 @@ object WebSocketClientApp extends App {
   }
 
   implicit val codecString: Codec[String] = utf8
+  implicit val network: Network[IO] = Network.forAsync[IO]
 
-  Stream.resource(httpResources).flatMap { case (group, tls) =>
+
+  Stream.eval(TLSContext.Builder.forAsync[IO].system).flatMap { tls =>
     WebSocket.client(
       WebSocketRequest.ws("echo.websocket.org", "/", QueryParameter.single("encoding", "text"))
       , wspipe
-    )(group, tls).map { x =>
+    )(tls).map { x =>
       println(("RESULT OF WS", x))
     }
   }.compile.drain.unsafeRunSync()

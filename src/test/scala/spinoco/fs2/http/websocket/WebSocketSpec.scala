@@ -1,11 +1,10 @@
 package spinoco.fs2.http.websocket
 
-import java.net.InetSocketAddress
-
 import cats.effect.IO
+import com.comcast.ip4s._
 import fs2._
-import fs2.io.tcp.SocketGroup
-import fs2.io.tls.TLSContext
+import fs2.io.net.Network
+import fs2.io.net.tls.TLSContext
 import org.scalacheck.{Gen, Prop, Properties}
 import org.scalacheck.Prop._
 import scodec.Codec
@@ -16,7 +15,8 @@ import spinoco.fs2.http
 import scala.concurrent.duration._
 
 object WebSocketSpec extends Properties("WebSocket") {
-  import spinoco.fs2.http.Resources._
+  import cats.effect.unsafe.implicits.global
+
 
   property("random-bytes-size") = {
     val interval = Gen.choose(1,50)
@@ -34,6 +34,8 @@ object WebSocketSpec extends Properties("WebSocket") {
 
   property("websocket-server") = secure {
     implicit val codecString: Codec[String] = utf8
+    implicit val network: Network[IO] = Network.forAsync[IO]
+
 
     var received:List[Frame[String]] = Nil
 
@@ -45,25 +47,25 @@ object WebSocketSpec extends Properties("WebSocket") {
       output merge inbound.take(5).evalMap { in => IO { received = received :+ in }}.drain
     }
 
-    def serverStream(group: SocketGroup) =
-      http.server[IO](new InetSocketAddress("127.0.0.1", 9090))(
+    def serverStream =
+      http.server[IO](SocketAddress(host"127.0.0.1", port"9090"))(
         server (
           pipe = serverEcho
           , pingInterval = 500.millis
           , handshakeTimeout = 10.seconds
         )
-      )(group)
+      )
 
-    def clientStream(group: SocketGroup, tls: TLSContext) =
+    def clientStream(tls: TLSContext[IO]) =
       Stream.sleep_[IO](3.seconds) ++
       WebSocket.client(
         WebSocketRequest.ws("127.0.0.1", 9090, "/")
         , clientData
-      )(group, tls)
+      )(tls)
 
     val resultClient = {
-      Stream.resource(httpResources).flatMap { case (group, tls) =>
-      (serverStream(group).drain mergeHaltBoth clientStream(group, tls))
+      Stream.eval(TLSContext.Builder.forAsync[IO].system).flatMap { tls =>
+      (serverStream.drain mergeHaltBoth clientStream(tls))
       }.compile.toVector.unsafeRunTimed(20.seconds)
     }
 

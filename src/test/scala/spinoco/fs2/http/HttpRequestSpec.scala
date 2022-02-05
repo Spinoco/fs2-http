@@ -4,6 +4,7 @@ import cats.effect.IO
 import fs2._
 import org.scalacheck.Properties
 import org.scalacheck.Prop._
+import scodec.bits.ByteVector
 import spinoco.protocol.http._
 import spinoco.protocol.http.codec.HttpRequestHeaderCodec
 import spinoco.protocol.http.header._
@@ -11,6 +12,8 @@ import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 
 
 object HttpRequestSpec extends Properties("HttpRequest") {
+
+  import cats.effect.unsafe.implicits.global
 
   property("encode") = secure {
 
@@ -35,15 +38,17 @@ object HttpRequestSpec extends Properties("HttpRequest") {
 
 
   property("decode") = secure {
-    Stream.chunk(Chunk.bytes(
-      Seq(
-        "GET /hello-world.html HTTP/1.1"
-        , "Host: www.spinoco.com"
-        , "Content-Type: text/plain; charset=utf-8"
-        , "Content-Length: 11"
-        , ""
-        , "Hello World"
-      ).mkString("\r\n").getBytes
+    Stream.chunk(Chunk.byteVector(
+      ByteVector.view(
+        Seq(
+          "GET /hello-world.html HTTP/1.1"
+          , "Host: www.spinoco.com"
+          , "Content-Type: text/plain; charset=utf-8"
+          , "Content-Length: 11"
+          , ""
+          , "Hello World"
+        ).mkString("\r\n").getBytes
+      )
     ))
     .covary[IO]
     .through(HttpRequest.fromStream[IO](4096,HttpRequestHeaderCodec.defaultCodec))

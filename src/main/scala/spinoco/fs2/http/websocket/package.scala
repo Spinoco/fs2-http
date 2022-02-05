@@ -1,10 +1,10 @@
 package spinoco.fs2.http
 
-import cats.effect.{Concurrent, Timer}
+import cats.effect.kernel.Temporal
 import fs2._
 import scodec.{Decoder, Encoder}
-
 import spinoco.protocol.http.HttpRequestHeader
+
 import scala.concurrent.duration._
 
 
@@ -25,7 +25,7 @@ package object websocket {
     * @tparam F
     * @return
     */
-  def server[F[_] : Concurrent : Timer, I : Decoder, O : Encoder](
+  def server[F[_] : Temporal, I : Decoder, O : Encoder](
     pipe: Pipe[F, Frame[I], Frame[O]]
     , pingInterval: Duration = 30.seconds
     , handshakeTimeout: FiniteDuration = 10.seconds

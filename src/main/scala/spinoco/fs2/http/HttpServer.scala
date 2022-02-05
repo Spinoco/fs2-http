@@ -1,12 +1,13 @@
 package spinoco.fs2.http
 
-import java.net.InetSocketAddress
 
-import cats.effect.{ConcurrentEffect, ContextShift, Sync}
+import cats.Applicative
+
+import cats.effect.Async
 import cats.syntax.all._
+import com.comcast.ip4s.{Host, SocketAddress}
 import fs2._
-import fs2.concurrent.SignallingRef
-import fs2.io.tcp.SocketGroup
+import fs2.io.net.Network
 import scodec.Codec
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader, HttpStatusCode}
@@ -36,58 +37,49 @@ object HttpServer {
     *                                     Request is not suplied if failure happened before request was constructed.
     * @param socketGroup                  Group of sockets from which to create the server socket.
     */
-  def mk[F[_]: ConcurrentEffect: ContextShift](
+  def mk[F[_]: Async: Network](
     maxConcurrent: Int = Int.MaxValue
     , receiveBufferSize: Int = 256 * 1024
     , maxHeaderSize: Int = 10 *1024
     , requestHeaderReceiveTimeout: Duration = 5.seconds
     , requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
     , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
-    , bindTo: InetSocketAddress
+    , bindTo: SocketAddress[Host]
     , service:  (HttpRequestHeader, Stream[F,Byte]) => Stream[F,HttpResponse[F]]
     , requestFailure : Throwable => Stream[F, HttpResponse[F]]
     , sendFailure: (Option[HttpRequestHeader], HttpResponse[F], Throwable) => Stream[F, Nothing]
-  )(
-    socketGroup: SocketGroup
   ): Stream[F, Unit] = {
     import Stream._
-    import spinoco.fs2.http.internal._
     val (initial, readDuration) = requestHeaderReceiveTimeout match {
       case fin: FiniteDuration => (true, fin)
       case _ => (false, 0.millis)
     }
 
-    socketGroup.server[F](bindTo, receiveBufferSize = receiveBufferSize).map { resource =>
-      Stream.resource(resource).flatMap { socket =>
-      eval(SignallingRef[F, Boolean](initial)).flatMap { timeoutSignal =>
-        readWithTimeout[F](socket, readDuration, timeoutSignal.get, receiveBufferSize)
-        .through(HttpRequest.fromStream(maxHeaderSize, requestCodec))
-        .flatMap { case (request, body) =>
-          eval_(timeoutSignal.set(false)) ++
-          service(request, body).take(1).handleErrorWith { rsn => requestFailure(rsn).take(1) }
-          .map { resp => (request, resp) }
-        }
-        .attempt
-        .evalMap { attempt =>
-
-          def send(request:Option[HttpRequestHeader], resp: HttpResponse[F]): F[Unit] = {
-            HttpResponse.toStream(resp, responseCodec).through(socket.writes()).onFinalize(socket.endOfOutput).compile.drain.attempt flatMap {
-              case Left(err) => sendFailure(request, resp, err).compile.drain
-              case Right(()) => Sync[F].pure(())
-            }
-          }
-
-          attempt match {
-            case Right((request, response)) => send(Some(request), response)
-            case Left(err) => requestFailure(err).evalMap { send(None, _) }.compile.drain
-          }
-        }
-        .drain
+    Network[F].server(Some(bindTo.host), Some(bindTo.port)).map { socket =>
+      socket.reads
+      .through(HttpRequest.fromStream(maxHeaderSize, requestCodec)) //TODO add timeout
+      .flatMap { case (request, body) =>
+        service(request, body).take(1).handleErrorWith { rsn => requestFailure(rsn).take(1) }
+        .map { resp => (request, resp) }
       }
-    }}.parJoin(maxConcurrent)
+      .attempt
+      .evalMap { attempt =>
+        def send(request:Option[HttpRequestHeader], resp: HttpResponse[F]): F[Unit] = {
+          HttpResponse.toStream(resp, responseCodec).through(socket.writes).onFinalize(socket.endOfOutput).compile.drain.attempt flatMap {
+            case Left(err) => sendFailure(request, resp, err).compile.drain
+            case Right(()) => Applicative[F].unit
+          }
+        }
 
-
+        attempt match {
+          case Right((request, response)) => send(Some(request), response)
+          case Left(err) => requestFailure(err).evalMap { send(None, _) }.compile.drain
+        }
+      }
+      .drain
+    }.parJoin(maxConcurrent)
   }
+
 
   /** default handler for parsing request errors **/
   def handleRequestParseError[F[_] : RaiseThrowable](err: Throwable): Stream[F, HttpResponse[F]] = {

@@ -1,11 +1,10 @@
 package spinoco.fs2.http
 
-import java.net.InetSocketAddress
-
 import cats.effect.IO
+import com.comcast.ip4s._
 import fs2._
-import fs2.io.tcp.SocketGroup
-import fs2.io.tls.TLSContext
+import fs2.io.net.Network
+import fs2.io.net.tls.TLSContext
 import org.scalacheck.Properties
 import org.scalacheck.Prop._
 import spinoco.fs2.http
@@ -17,7 +16,9 @@ import spinoco.protocol.http.{HttpRequestHeader, HttpStatusCode, Uri}
 import scala.concurrent.duration._
 
 object HttpServerSpec extends Properties("HttpServer"){
-  import Resources._
+  import cats.effect.unsafe.implicits.global
+  implicit val network: Network[IO] = Network.forAsync[IO]
+
 
   val MaxConcurrency: Int = 10
 
@@ -33,11 +34,11 @@ object HttpServerSpec extends Properties("HttpServer"){
   }
 
   def failRouteService(request: HttpRequestHeader, body: Stream[IO,Byte]): Stream[IO,HttpResponse[IO]] = {
-    Stream.raiseError(new Throwable("Booom!"))
+    Stream.raiseError[IO](new Throwable("Booom!")).covaryOutput[HttpResponse[IO]]
   }
 
   def failingResponse(request: HttpRequestHeader, body: Stream[IO,Byte]): Stream[IO,HttpResponse[IO]] = Stream {
-    HttpResponse(HttpStatusCode.Ok).copy(body = Stream.raiseError(new Throwable("Kaboom!")).covary[IO])
+    HttpResponse(HttpStatusCode.Ok).copy(body = Stream.raiseError[IO](new Throwable("Kaboom!")).covaryOutput[Byte])
   }.covary[IO]
 
 
@@ -45,20 +46,20 @@ object HttpServerSpec extends Properties("HttpServer"){
     // run up to count parallel requests and then make sure all of them pass within timeout
     val count = 100
 
-    def clients(socketGroup: SocketGroup, tls: TLSContext) : Stream[IO, Stream[IO, (Int, Boolean)]] = {
+    def clients(tls: TLSContext[IO]) : Stream[IO, Stream[IO, (Int, Boolean)]] = {
       val request = HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
-      Stream.eval(client[IO]()(socketGroup, tls)).flatMap { httpClient =>
-      Stream.range(0,count).unchunk.map { idx =>
+      Stream.eval(client[IO]()(tls)).flatMap { httpClient =>
+      Stream.range(0,count).chunkLimit(1).unchunks.map { idx =>
         httpClient.request(request).map(resp => idx -> (resp.header.status == HttpStatusCode.Ok))
       }}
     }
 
 
-    Stream.resource(httpResources).flatMap { case (group, tls) =>
+    Stream.eval(TLSContext.Builder.forAsync[IO].system).flatMap { tls =>
       (Stream(
-        http.server[IO](new InetSocketAddress("127.0.0.1", 9090))(echoService)(group).drain
-      ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients(group, tls))
-      .parJoin[IO, (Int, Boolean)](MaxConcurrency)
+        http.server[IO](SocketAddress(host"127.0.0.1", port"9090"))(echoService).drain
+      ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients(tls))
+      .parJoin(MaxConcurrency)
       .take(count)
       .filter { case (_, success) => success }
     }.compile.toVector.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
@@ -70,13 +71,13 @@ object HttpServerSpec extends Properties("HttpServer"){
     // run up to count parallel requests with body,  and then make sure all of them pass within timeout with body echoed back
     val count = 100
 
-    def clients(socketGroup: SocketGroup, tls: TLSContext): Stream[IO, Stream[IO, (Int, Boolean)]] = {
+    def clients(tls: TLSContext[IO]): Stream[IO, Stream[IO, (Int, Boolean)]] = {
       val request =
         HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
        .withBody("Hello")(BodyEncoder.utf8String, RaiseThrowable.fromApplicativeError[IO])
 
-      Stream.eval(client[IO]()(socketGroup, tls)).flatMap { httpClient =>
-        Stream.range(0,count).unchunk.map { idx =>
+      Stream.eval(client[IO]()(tls)).flatMap { httpClient =>
+        Stream.range(0,count).chunkLimit(1).unchunks.map { idx =>
           httpClient.request(request).flatMap { resp =>
             Stream.eval(resp.bodyAsString).map { attempt =>
               val okResult = resp.header.status == HttpStatusCode.Ok
@@ -86,11 +87,11 @@ object HttpServerSpec extends Properties("HttpServer"){
         }}
     }
 
-    Stream.resource(httpResources).flatMap { case (group, tls) =>
+    Stream.eval(TLSContext.Builder.forAsync[IO].system).flatMap { tls =>
       ( Stream.sleep_[IO](3.second) ++
       (Stream(
-        http.server[IO](new InetSocketAddress("127.0.0.1", 9090))(echoService)(group).drain
-      ).covary[IO] ++ Stream.sleep_[IO](3.second) ++ clients(group, tls)).parJoin[IO, (Int, Boolean)](MaxConcurrency))
+        http.server[IO](SocketAddress(host"127.0.0.1", port"9090"))(echoService).drain
+      ).covary[IO] ++ Stream.sleep_[IO](3.second) ++ clients(tls)).parJoin(MaxConcurrency))
       .take(count)
       .filter { case (_, success) => success }
     }.compile.toVector.unsafeRunTimed(60.seconds).map { _.size } ?= Some(count)
@@ -102,27 +103,27 @@ object HttpServerSpec extends Properties("HttpServer"){
     // run up to count parallel requests with body, server shall fail each, nevertheless response shall be delivered.
     val count = 1
 
-    def clients(socketGroup: SocketGroup, tls: TLSContext): Stream[IO, Stream[IO, (Int, Boolean)]] = {
+    def clients(tls: TLSContext[IO]): Stream[IO, Stream[IO, (Int, Boolean)]] = {
       val request =
         HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
 
-      Stream.eval(client[IO]()(socketGroup, tls)).flatMap { httpClient =>
-      Stream.range(0,count).unchunk.map { idx =>
+      Stream.eval(client[IO]()(tls)).flatMap { httpClient =>
+      Stream.range(0,count).chunkLimit(1).unchunks.map { idx =>
       httpClient.request(request).map { resp =>
         idx -> (resp.header.status == HttpStatusCode.BadRequest)
       }}}
     }
 
-    Stream.resource(httpResources).flatMap { case (group, tls) =>
+    Stream.eval(TLSContext.Builder.forAsync[IO].system).flatMap { tls =>
       (Stream.sleep_[IO](3.second) ++
         (Stream(
           HttpServer.mk[IO](
-            bindTo = new InetSocketAddress("127.0.0.1", 9090)
+            bindTo = SocketAddress(host"127.0.0.1", port"9090")
             , service = failRouteService
             , requestFailure = _ => { Stream(HttpResponse[IO](HttpStatusCode.BadRequest)).covary[IO] }
             , sendFailure = HttpServer.handleSendFailure[IO] _
-          )(group).drain
-        ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients(group, tls)).parJoin[IO, (Int, Boolean)](MaxConcurrency))
+          ).drain
+        ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients(tls)).parJoin(MaxConcurrency))
         .take(count)
         .filter { case (_, success) => success }
     }.compile.toVector.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
@@ -134,12 +135,12 @@ object HttpServerSpec extends Properties("HttpServer"){
     // run up to count parallel requests with body, server shall fail each (when sending body), nevertheless response shall be delivered.
     val count = 100
 
-    def clients(socketGroup: SocketGroup, tls: TLSContext): Stream[IO, Stream[IO, (Int, Boolean)]] = {
+    def clients(tls: TLSContext[IO]): Stream[IO, Stream[IO, (Int, Boolean)]] = {
       val request =
         HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
 
-      Stream.eval(client[IO]()(socketGroup, tls)).flatMap { httpClient =>
-        Stream.range(0,count).unchunk.map { idx =>
+      Stream.eval(client[IO]()(tls)).flatMap { httpClient =>
+        Stream.range(0,count).chunkLimit(1).unchunks.map { idx =>
           httpClient.request(request).map { resp =>
             idx -> (resp.header.status == HttpStatusCode.Ok) // body won't be consumed, and request was succesfully sent
           }
@@ -147,16 +148,16 @@ object HttpServerSpec extends Properties("HttpServer"){
       }
     }
 
-    Stream.resource(httpResources).flatMap { case (group, tls) =>
+    Stream.eval(TLSContext.Builder.forAsync[IO].system).flatMap { tls =>
       (Stream.sleep_[IO](3.second) ++
         (Stream(
           HttpServer.mk[IO](
-            bindTo = new InetSocketAddress("127.0.0.1", 9090)
+            bindTo = SocketAddress(host"127.0.0.1", port"9090")
             , service = failingResponse
             , requestFailure = HttpServer.handleRequestParseError[IO] _
             , sendFailure = (_, _, _) => Stream.empty
-          )(group).drain
-        ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients(group, tls)).parJoin[IO, (Int, Boolean)](MaxConcurrency))
+          ).drain
+        ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients(tls)).parJoin(MaxConcurrency))
         .take(count)
         .filter { case (_, success) => success }
     }.compile.toVector.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)

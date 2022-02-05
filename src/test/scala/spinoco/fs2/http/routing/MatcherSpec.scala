@@ -9,6 +9,8 @@ import spinoco.protocol.http.{HttpMethod, HttpRequestHeader, HttpStatusCode, Uri
 
 object MatcherSpec extends Properties("Matcher"){
 
+  import cats.effect.unsafe.implicits.global
+
   val request = HttpRequestHeader(
     method = HttpMethod.GET
   )

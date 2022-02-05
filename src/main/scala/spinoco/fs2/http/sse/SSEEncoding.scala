@@ -1,6 +1,5 @@
 package spinoco.fs2.http.sse
 
-import fs2.Chunk.ByteVectorChunk
 import fs2._
 import scodec.Attempt
 import scodec.bits.ByteVector
@@ -22,14 +21,14 @@ object SSEEncoding {
         val eventBytes = event.map { s => s"event: $s" }.toSeq
         val dataBytes = data.map { s => s"data: $s" }
         val idBytes = id.map { s => s"id: $s" }.toSeq
-        Stream.chunk(ByteVectorChunk(ByteVector.view((
+        Stream.chunk(Chunk.byteVector(ByteVector.view((
           eventBytes ++ dataBytes ++ idBytes).mkString("", "\n", "\n\n").getBytes
         )))
 
       case SSEMessage.SSERetry(duration) =>
-        Stream.chunk(ByteVectorChunk(ByteVector.view(
+        Stream.chunk(Chunk.byteVector((ByteVector.view(
           s"retry: ${duration.toMillis}\n\n".getBytes
-        )))
+        ))))
     }
   }
 
@@ -56,8 +55,8 @@ object SSEEncoding {
           val all = buff ++ chunk.toByteVector
           if (all.size < 2) (next through dropInitial(all)).pull.echo
           else {
-            if (all.startsWith(StartBom)) Pull.output(ByteVectorChunk(all.drop(2))) >> next.pull.echo
-            else Pull.output(ByteVectorChunk(all)) >> next.pull.echo
+            if (all.startsWith(StartBom)) Pull.output(Chunk.byteVector(all.drop(2))) >> next.pull.echo
+            else Pull.output(Chunk.byteVector(all)) >> next.pull.echo
           }
       }.stream
     }
@@ -65,7 +64,7 @@ object SSEEncoding {
     // makes lines out of incoming bytes. Lines are utf-8 decoded
     // separated by \r\n or \n or \r
     def mkLines: Pipe[F, Byte, String] =
-      _ through text.utf8Decode[F] through text.lines[F]
+      _ through text.utf8.decode[F] through text.lines[F]
 
 
     // makes lines for single event

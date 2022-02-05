@@ -7,9 +7,10 @@ import org.scalacheck.Prop._
 import scodec.bits.ByteVector
 
 object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
+  import cats.effect.unsafe.implicits.global
 
   property("encode-decode") = forAll { strings: List[String] =>
-    val in = strings.foldLeft(Stream.empty.covaryAll[IO, Byte]) { case(s,n) => s ++ Stream.chunk(Chunk.bytes(n.getBytes)) }
+    val in = strings.foldLeft(Stream.empty.covaryAll[IO, Byte]) { case(s,n) => s ++ Stream.chunk(Chunk.byteVector(ByteVector.view(n.getBytes))) }
 
 
     (in through ChunkedEncoding.encode through ChunkedEncoding.decode(1024))
@@ -37,7 +38,7 @@ object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
   property("encoded-wiki-example") = secure {
 
 
-    (Stream.chunk[IO, Byte](Chunk.bytes(wikiExample.getBytes)) through ChunkedEncoding.decode(1024))
+    (Stream.chunk[IO, Byte](Chunk.byteVector(ByteVector.view(wikiExample.getBytes))) through ChunkedEncoding.decode(1024))
     .covary[IO]
     .chunks
     .compile.toVector
@@ -56,7 +57,7 @@ object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
         , "pedia"
         , " in\r\n\r\nchunks."
       )
-    ).flatMap(s => Stream.chunk[IO, Byte](Chunk.bytes(s.getBytes)))
+    ).flatMap(s => Stream.chunk[IO, Byte](Chunk.byteVector(ByteVector.view(s.getBytes))))
 
     (chunks through ChunkedEncoding.encode)
       .chunks

@@ -1,17 +1,13 @@
 package spinoco.fs2.http
 
 
-import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, Timer}
-import java.util.concurrent.TimeUnit
-
 import cats.Applicative
 import cats.effect._
 import fs2._
-import fs2.concurrent.SignallingRef
-import fs2.io.tcp.{Socket, SocketGroup}
-import fs2.io.tls.TLSContext
+import fs2.io.net.{Network, Socket}
+import fs2.io.net.tls.TLSContext
 import scodec.{Codec, Decoder, Encoder}
-import spinoco.fs2.http.internal.{addressForRequest, clientLiftToSecure, readWithTimeout}
+import spinoco.fs2.http.internal.{addressForRequest, clientLiftToSecure}
 import spinoco.fs2.http.sse.{SSEDecoder, SSEEncoding}
 import spinoco.fs2.http.websocket.{Frame, WebSocket, WebSocketRequest}
 import spinoco.protocol.http.header._
@@ -112,12 +108,11 @@ object HttpClient {
     * @param socketGroup     Group of sockets from which to create the client for http request.
     * @param tlsContext      The TLS context used for elevating the http socket to https.
     */
-  def mk[F[_]: ConcurrentEffect: ContextShift: Timer](
+  def mk[F[_]: Async: Network](
    requestCodec         : Codec[HttpRequestHeader]
    , responseCodec      : Codec[HttpResponseHeader]
   )(
-    socketGroup: SocketGroup
-    , tlsContext: TLSContext
+    tlsContext: TLSContext[F]
   ):F[HttpClient[F]] = Applicative[F].pure {
     new HttpClient[F] {
       def request(
@@ -126,13 +121,15 @@ object HttpClient {
        , maxResponseHeaderSize: Int
        , timeout: Duration
       ): Stream[F, HttpResponse[F]] = {
+
         Stream.eval(addressForRequest[F](request.scheme, request.host)).flatMap { address =>
-        Stream.resource(socketGroup.client(address))
-        .flatMap { socket =>
+          Stream.resource(Network[F].client(address))
+        }.flatMap { socket =>
           if (!request.isSecure) Stream.emit(socket)
           else Stream.resource(clientLiftToSecure[F](tlsContext)(socket, request.host))
         }
-        .flatMap { impl.request[F](request, chunkSize, maxResponseHeaderSize, timeout, requestCodec, responseCodec ) }}
+        .flatMap { impl.request[F](request, maxResponseHeaderSize, timeout, requestCodec, responseCodec ) }
+
       }
 
       def websocket[I : Decoder, O : Encoder](
@@ -142,7 +139,7 @@ object HttpClient {
         , chunkSize: Int
         , maxFrameSize: Int
       ): Stream[F, Option[HttpResponseHeader]] =
-        WebSocket.client(request,pipe,maxResponseHeaderSize,chunkSize,maxFrameSize, requestCodec, responseCodec)(socketGroup, tlsContext)
+        WebSocket.client(request,pipe,maxResponseHeaderSize,chunkSize,maxFrameSize, requestCodec, responseCodec)(tlsContext)
 
 
       def sse[A : SSEDecoder](rq: HttpRequest[F], maxResponseHeaderSize: Int, chunkSize: Int): Stream[F, A] =
@@ -161,33 +158,23 @@ object HttpClient {
 
    private[http] object impl {
 
-     def request[F[_] : Concurrent](
+     def request[F[_]: Temporal](
       request: HttpRequest[F]
-      , chunkSize: Int
       , maxResponseHeaderSize: Int
       , timeout: Duration
       , requestCodec: Codec[HttpRequestHeader]
       , responseCodec: Codec[HttpResponseHeader]
      )(socket: Socket[F])(implicit clock: Clock[F]):Stream[F, HttpResponse[F]] = {
-       import Stream._
-       timeout match {
-         case fin: FiniteDuration =>
-           eval(clock.realTime(TimeUnit.MILLISECONDS)).flatMap { start =>
-           HttpRequest.toStream(request, requestCodec).through(socket.writes(Some(fin))).last.onFinalize(socket.endOfOutput).flatMap { _ =>
-           eval(SignallingRef[F, Boolean](true)).flatMap { timeoutSignal =>
-           eval(clock.realTime(TimeUnit.MILLISECONDS)).flatMap { sent =>
-             val remains = fin - (sent - start).millis
-             readWithTimeout(socket, remains, timeoutSignal.get, chunkSize)
-             .through (HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec))
-             .flatMap { response =>
-               eval_(timeoutSignal.set(false)) ++ emit(response)
-             }
-           }}}}
 
-         case _ =>
-           HttpRequest.toStream(request, requestCodec).through(socket.writes(None)).last.onFinalize(socket.endOfOutput).flatMap { _ =>
-             socket.reads(chunkSize, None) through HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec)
-           }
+       val read = {
+         HttpRequest.toStream(request, requestCodec).through(socket.writes).last.onFinalize(socket.endOfOutput).flatMap { _ =>
+           socket.reads through HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec)
+         }
+       }
+
+       timeout match {
+         case fin: FiniteDuration => read.timeout(fin)
+         case _ => read
        }
      }
    }

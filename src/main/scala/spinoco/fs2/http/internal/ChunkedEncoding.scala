@@ -1,6 +1,5 @@
 package spinoco.fs2.http.internal
 
-import fs2.Chunk.ByteVectorChunk
 import fs2._
 import scodec.bits.ByteVector
 
@@ -26,7 +25,7 @@ object ChunkedEncoding {
             case Left(header) =>
               val nh = header ++ bv
               val endOfheader = nh.indexOfSlice(`\r\n`)
-              if (endOfheader == 0) go(expect, Stream.chunk(ByteVectorChunk(bv.drop(`\r\n`.size))) ++ tl) //strip any leading crlf on header, as this starts with /r/n
+              if (endOfheader == 0) go(expect, Stream.chunk(Chunk.byteVector(bv.drop(`\r\n`.size))) ++ tl) //strip any leading crlf on header, as this starts with /r/n
               else if (endOfheader < 0 && nh.size > maxChunkHeaderSize) Pull.raiseError(new Throwable(s"Failed to get Chunk header. Size exceeds max($maxChunkHeaderSize) : ${nh.size} ${nh.decodeUtf8}"))
               else if (endOfheader < 0) go(Left(nh), tl)
               else {
@@ -34,16 +33,16 @@ object ChunkedEncoding {
                 readChunkedHeader(hdr.dropRight(`\r\n`.size)) match {
                   case None => Pull.raiseError(new Throwable(s"Failed to parse chunked header : ${hdr.decodeUtf8}"))
                   case Some(0) => Pull.done
-                  case Some(sz) => go(Right(sz), Stream.chunk(ByteVectorChunk(rem)) ++ tl)
+                  case Some(sz) => go(Right(sz), Stream.chunk(Chunk.byteVector(rem)) ++ tl)
                 }
               }
 
             case Right(remains) =>
-              if (remains == bv.size) Pull.output(ByteVectorChunk(bv)) >> go(Left(ByteVector.empty), tl)
-              else if (remains > bv.size) Pull.output(ByteVectorChunk(bv)) >> go(Right(remains - bv.size), tl)
+              if (remains == bv.size) Pull.output(Chunk.byteVector(bv)) >> go(Left(ByteVector.empty), tl)
+              else if (remains > bv.size) Pull.output(Chunk.byteVector(bv)) >> go(Right(remains - bv.size), tl)
               else {
                 val (out,next) = bv.splitAt(remains.toInt)
-                Pull.output(ByteVectorChunk(out)) >> go(Left(ByteVector.empty), Stream.chunk(ByteVectorChunk(next)) ++ tl)
+                Pull.output(Chunk.byteVector(out)) >> go(Left(ByteVector.empty), Stream.chunk(Chunk.byteVector(next)) ++ tl)
               }
           }
 
@@ -54,7 +53,7 @@ object ChunkedEncoding {
   }
 
 
-  private val lastChunk: Chunk[Byte] = ByteVectorChunk((ByteVector('0') ++ `\r\n` ++ `\r\n`).compact)
+  private val lastChunk: Chunk[Byte] = Chunk.byteVector((ByteVector('0') ++ `\r\n` ++ `\r\n`).compact)
 
   /**
     * Encodes chunk of bytes to http chunked encoding.
@@ -62,7 +61,7 @@ object ChunkedEncoding {
   def encode[F[_]]:Pipe[F,Byte,Byte] = {
     def encodeChunk(bv:ByteVector):Chunk[Byte] = {
       if (bv.isEmpty) Chunk.empty
-      else ByteVectorChunk(ByteVector.view(bv.size.toHexString.toUpperCase.getBytes) ++ `\r\n` ++ bv ++ `\r\n` )
+      else Chunk.byteVector(ByteVector.view(bv.size.toHexString.toUpperCase.getBytes) ++ `\r\n` ++ bv ++ `\r\n` )
     }
     _.mapChunks { ch => encodeChunk(ch.toByteVector) } ++ Stream.chunk(lastChunk)
   }

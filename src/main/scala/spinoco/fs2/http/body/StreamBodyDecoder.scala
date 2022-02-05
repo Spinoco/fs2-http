@@ -22,7 +22,7 @@ object StreamBodyDecoder {
 
   def utf8StringDecoder[F[_]]: StreamBodyDecoder[F, String] =
     StreamBodyDecoder.instance { ct =>
-      if (ct.mediaType.isText && util.getCharset(ct).contains(MIMECharset.`UTF-8`)) Some(text.utf8Decode[F])
+      if (ct.mediaType.isText && util.getCharset(ct).contains(MIMECharset.`UTF-8`)) Some(text.utf8.decode[F])
       else None
     }
 

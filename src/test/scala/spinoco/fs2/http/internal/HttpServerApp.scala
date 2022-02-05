@@ -1,9 +1,9 @@
 package spinoco.fs2.http.internal
 
-import java.net.InetSocketAddress
-
 import cats.effect.IO
+import com.comcast.ip4s._
 import fs2._
+import fs2.io.net.Network
 import spinoco.fs2.http
 import spinoco.fs2.http.HttpResponse
 import spinoco.protocol.http.header._
@@ -13,7 +13,9 @@ import spinoco.protocol.http.{HttpRequestHeader, HttpStatusCode, Uri}
 
 object HttpServerApp extends App {
 
-  import spinoco.fs2.http.Resources._
+  import cats.effect.unsafe.implicits.global
+  implicit val network: Network[IO] = Network.forAsync[IO]
+
 
   def service(request: HttpRequestHeader, body: Stream[IO,Byte]): Stream[IO,HttpResponse[IO]] = {
     if (request.path != Uri.Path / "echo") Stream.emit(HttpResponse[IO](HttpStatusCode.Ok).withUtf8Body("Hello World")).covary[IO]
@@ -26,8 +28,7 @@ object HttpServerApp extends App {
     }
   }
 
-  Stream.resource(httpResources).flatMap { case (group, _)  =>
-    http.server(new InetSocketAddress("127.0.0.1", 9090))(service)(group)
-  }.compile.drain.unsafeRunSync()
+  http.server(SocketAddress(host"127.0.0.1", port"9090"))(service)
+  .compile.drain.unsafeRunSync()
 
 }

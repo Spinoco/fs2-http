@@ -1,7 +1,6 @@
 package spinoco.fs2.http.body
 
 import cats.MonadError
-import fs2.Chunk.ByteVectorChunk
 import fs2._
 import scodec.Attempt.{Failure, Successful}
 import scodec.bits.ByteVector
@@ -45,7 +44,7 @@ object StreamBodyEncoder {
 
   /** encoder that encodes ByteVector as they come in, with `application/octet-stream` content type **/
   def byteVectorEncoder[F[_]] : StreamBodyEncoder[F, ByteVector] =
-    StreamBodyEncoder.instance(ContentType.BinaryContent(MediaType.`application/octet-stream`, None)) { _.flatMap { bv => Stream.chunk(ByteVectorChunk(bv)) } }
+    StreamBodyEncoder.instance(ContentType.BinaryContent(MediaType.`application/octet-stream`, None)) { _.flatMap { bv => Stream.chunk(Chunk.byteVector(bv)) } }
 
   /** encoder that encodes utf8 string, with `text/plain` utf8 content type **/
   def utf8StringEncoder[F[_]: RaiseThrowable](implicit F: MonadError[F, Throwable]) : StreamBodyEncoder[F, String] =
@@ -61,7 +60,7 @@ object StreamBodyEncoder {
     StreamBodyEncoder.instance(E.contentType) { _.flatMap { a =>
       E.encode(a) match {
         case Failure(err) => Stream.raiseError(new Throwable(s"Failed to encode: $err ($a)"))
-        case Successful(bytes) => Stream.chunk(ByteVectorChunk(bytes))
+        case Successful(bytes) => Stream.chunk(Chunk.byteVector(bytes))
       }
     }}
 

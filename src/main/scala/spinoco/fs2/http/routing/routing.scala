@@ -1,18 +1,19 @@
 package spinoco.fs2.http
 
-import cats.effect.{Concurrent, Effect, Timer}
+import cats.effect.kernel.Temporal
+import cats.effect.{Async, Sync}
 import fs2._
 import scodec.{Attempt, Decoder, Encoder}
 import scodec.bits.Bases.Base64Alphabet
 import scodec.bits.{Bases, ByteVector}
 import shapeless.Typeable
-
 import spinoco.fs2.http.body.{BodyDecoder, StreamBodyDecoder}
 import spinoco.fs2.http.routing.MatchResult._
 import spinoco.fs2.http.routing.Matcher.{Eval, Match}
 import spinoco.protocol.http.header._
 import spinoco.protocol.http.{HttpMethod, HttpRequestHeader, HttpStatusCode, Uri}
 import spinoco.fs2.http.websocket.{Frame, WebSocket}
+
 import scala.concurrent.duration._
 
 
@@ -25,7 +26,7 @@ package object routing {
 
 
   /** converts supplied route to function that is handled over to server to perform the routing **/
-  def route[F[_]](r:Route[F])(implicit F: Effect[F]):(HttpRequestHeader, Stream[F, Byte]) => Stream[F, HttpResponse[F]] = {
+  def route[F[_]](r:Route[F])(implicit F: Sync[F]):(HttpRequestHeader, Stream[F, Byte]) => Stream[F, HttpResponse[F]] = {
     (header, body) =>
       Stream.eval(Matcher.run[F, Stream[F, HttpResponse[F]]](r)(header, body)).flatMap { mr =>
         mr.fold((resp : HttpResponse[F]) => Stream.emit(resp), identity )
@@ -134,7 +135,7 @@ package object routing {
     * @param maxFrameSize     Maximum size of single websocket frame. If the binary size of single frame is larger than
     *                         supplied value, websocket will fail.
     */
-  def websocket[F[_] : Concurrent : Timer, I : Decoder, O : Encoder](
+  def websocket[F[_] : Temporal, I : Decoder, O : Encoder](
     pingInterval: Duration = 30.seconds
     , handshakeTimeout: FiniteDuration = 10.seconds
     , maxFrameSize: Int = 1024*1024
@@ -181,7 +182,7 @@ package object routing {
       }
 
     /** extracts last element of the `body` or responds BadRequest if body can't be extracted **/
-    def as[A](implicit D: BodyDecoder[A], F: Effect[F]): Matcher[F, A] = {
+    def as[A](implicit D: BodyDecoder[A], F: Async[F]): Matcher[F, A] = {
       header[`Content-Type`].flatMap { ct =>
         bytes.flatMap { s => eval {
           F.map(s.chunks.compile.toVector) { chunks =>

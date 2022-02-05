@@ -1,10 +1,11 @@
 package spinoco.fs2
 
-import java.net.InetSocketAddress
-import cats.effect.{ConcurrentEffect, ContextShift, Timer}
+import cats.effect.Async
+import com.comcast.ip4s.{Host, SocketAddress}
+
 import fs2._
-import fs2.io.tcp.SocketGroup
-import fs2.io.tls.TLSContext
+import fs2.io.net.Network
+import fs2.io.net.tls.TLSContext
 import scodec.Codec
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
 import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
@@ -28,8 +29,8 @@ package object http {
     * @param service                      Pipe that defines handling of each incoming request and produces a response
     * @param socketGroup                  Group of sockets from which to create the server socket.
     */
-  def server[F[_] : ConcurrentEffect: ContextShift](
-     bindTo: InetSocketAddress
+  def server[F[_]: Async: Network](
+     bindTo: SocketAddress[Host]
      , maxConcurrent: Int = Int.MaxValue
      , receiveBufferSize: Int = 256 * 1024
      , maxHeaderSize: Int = 10 *1024
@@ -38,7 +39,7 @@ package object http {
      , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
    )(
      service:  (HttpRequestHeader, Stream[F,Byte]) => Stream[F,HttpResponse[F]]
-   )(socketGroup: SocketGroup):Stream[F,Unit] = HttpServer.mk(
+   ):Stream[F,Unit] = HttpServer.mk(
     maxConcurrent = maxConcurrent
     , receiveBufferSize = receiveBufferSize
     , maxHeaderSize = maxHeaderSize
@@ -49,7 +50,7 @@ package object http {
     , service = service
     , requestFailure = HttpServer.handleRequestParseError[F] _
     , sendFailure = HttpServer.handleSendFailure[F] _
-  )(socketGroup)
+  )
 
 
   /**
@@ -60,14 +61,13 @@ package object http {
     * @param socketGroup     Group of sockets from which to create the client for http request.
     * @param tlsContext      The TLS context used for elevating the http socket to https.
     */
-  def client[F[_]: ConcurrentEffect :Timer: ContextShift](
+  def client[F[_]: Async: Network](
     requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
     , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
   )(
-    socketGroup: SocketGroup
-    , tlsContext: TLSContext
+    tlsContext: TLSContext[F]
   ):F[HttpClient[F]] = {
-    HttpClient.mk(requestCodec, responseCodec)(socketGroup, tlsContext)
+    HttpClient.mk(requestCodec, responseCodec)(tlsContext)
   }
 
 }

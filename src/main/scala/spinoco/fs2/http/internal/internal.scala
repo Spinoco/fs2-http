@@ -1,20 +1,16 @@
 package spinoco.fs2.http
 
-import java.net.InetSocketAddress
-import java.util.concurrent.TimeoutException
-
 import javax.net.ssl.{SNIHostName, SNIServerName}
-import cats.effect.{Concurrent, ContextShift, Resource, Sync}
-import fs2.Chunk.ByteVectorChunk
+import cats.effect.{Concurrent, Resource, Sync}
 import fs2.Stream._
-import fs2.io.tcp.Socket
-import fs2.io.tls.{TLSContext, TLSParameters}
 import fs2.{Stream, _}
 import scodec.bits.ByteVector
 import spinoco.protocol.http.{HostPort, HttpScheme, Scheme}
 import spinoco.protocol.http.header.{HttpHeader, `Transfer-Encoding`}
+import com.comcast.ip4s._
+import fs2.io.net.Socket
+import fs2.io.net.tls.{TLSContext, TLSParameters, TLSSocket}
 
-import scala.concurrent.duration._
 import scala.reflect.ClassTag
 
 
@@ -59,7 +55,7 @@ package object internal {
           else {
             val (h, t) = all.splitAt(idx)
             if (h.size > maxHeaderSize)  Pull.raiseError(new Throwable(s"Size of the header exceeded the limit of $maxHeaderSize (${all.size})"))
-            else  Pull.output1((h, Stream.chunk(ByteVectorChunk(t.drop(`\r\n\r\n`.size))) ++ tl))
+            else  Pull.output1((h, Stream.chunk(Chunk.byteVector(t.drop(`\r\n\r\n`.size))) ++ tl))
 
           }
       }
@@ -70,7 +66,7 @@ package object internal {
 
 
   /** evaluates address from the host port and scheme, if this is a custom scheme we will default to port 8080**/
-  def addressForRequest[F[_] : Sync](scheme: Scheme, host: HostPort):F[InetSocketAddress] = Sync[F].delay {
+  def addressForRequest[F[_] : Sync](scheme: Scheme, host: HostPort):F[SocketAddress[Host]] = {
     val port = host.port.getOrElse {
       scheme match {
         case HttpScheme.HTTPS | HttpScheme.WSS => 443
@@ -79,7 +75,13 @@ package object internal {
       }
     }
 
-    new InetSocketAddress(host.host, port)
+    Sync[F].fromEither {
+      Host.fromString(host.host).toRight(new Throwable("Failed to resolve host")).flatMap { host =>
+        Port.fromInt(port).toRight(new Throwable("Invalid port")).map { port =>
+          SocketAddress(host, port)
+        }
+      }
+    }
   }
 
   /** swaps header `H` for new value. If header exists, it is discarded. Appends header to the end**/
@@ -87,46 +89,15 @@ package object internal {
     headers.filterNot(CT.runtimeClass.isInstance) :+ header
   }
 
-  /**
-    * Reads from supplied socket with timeout until `shallTimeout` yields to true.
-    * @param socket         A socket to read from
-    * @param timeout        A timeout
-    * @param shallTimeout   If true, timeout will be applied, if false timeout won't be applied.
-    * @param chunkSize      Size of chunk to read up to
-    */
-  def readWithTimeout[F[_]: Sync](
-    socket: Socket[F]
-    , timeout: FiniteDuration
-    , shallTimeout: F[Boolean]
-    , chunkSize: Int
-  ) : Stream[F, Byte] = {
-    def go(remains:FiniteDuration) : Stream[F, Byte] = {
-      eval(shallTimeout).flatMap { shallTimeout =>
-        if (!shallTimeout) socket.reads(chunkSize, None)
-        else {
-          if (remains <= 0.millis) Stream.raiseError[F](new TimeoutException())
-          else {
-            eval(Sync[F].delay(System.currentTimeMillis())).flatMap { start =>
-            eval(socket.read(chunkSize, Some(remains))).flatMap { read =>
-            eval(Sync[F].delay(System.currentTimeMillis())).flatMap { end => read match {
-              case Some(bytes) => Stream.chunk(bytes) ++ go(remains - (end - start).millis)
-              case None => Stream.empty
-            }}}}
-          }
-        }
-      }
-    }
-
-    go(timeout)
-  }
-
   /** creates a function that lifts supplied socket to secure socket **/
-  def clientLiftToSecure[F[_] : Concurrent : ContextShift](tlsContext: TLSContext)(socket: Socket[F], server: HostPort): Resource[F, Socket[F]] = {
+  def clientLiftToSecure[F[_] : Concurrent](tlsContext: TLSContext[F])(socket: Socket[F], server: HostPort): Resource[F, TLSSocket[F]] = {
 
-    tlsContext.client(
-      socket
-      , TLSParameters(serverNames = Some(List[SNIServerName](new SNIHostName(server.host))))
+    tlsContext
+    .clientBuilder(socket)
+    .withParameters(
+      TLSParameters(serverNames = Some(List[SNIServerName](new SNIHostName(server.host))))
     )
+    .build
   }
 
 }

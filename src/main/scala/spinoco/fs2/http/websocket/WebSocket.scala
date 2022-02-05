@@ -1,12 +1,11 @@
 package spinoco.fs2.http.websocket
 
 
-import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, Timer}
-import fs2.Chunk.ByteVectorChunk
+import cats.effect.std.Queue
+import cats.effect.{Async, Concurrent, Temporal}
 import fs2._
-import fs2.concurrent.Queue
-import fs2.io.tcp.SocketGroup
-import fs2.io.tls.TLSContext
+import fs2.io.net.Network
+import fs2.io.net.tls.TLSContext
 import scodec.Attempt.{Failure, Successful}
 import scodec.bits.ByteVector
 import scodec.{Codec, Decoder, Encoder}
@@ -18,6 +17,7 @@ import spinoco.protocol.http.header.value.ProductDescription
 import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 import spinoco.protocol.websocket.{OpCode, WebSocketFrame}
 import spinoco.protocol.websocket.codec.WebSocketFrameCodec
+
 import scala.concurrent.duration._
 import scala.util.Random
 
@@ -39,7 +39,7 @@ object WebSocket {
     * @tparam F
     * @return
     */
-  def server[F[_] : Concurrent : Timer, I : Decoder, O : Encoder](
+  def server[F[_]: Temporal, I : Decoder, O : Encoder](
     pipe: Pipe[F, Frame[I], Frame[O]]
     , pingInterval: Duration = 30.seconds
     , handshakeTimeout: FiniteDuration = 10.seconds
@@ -75,7 +75,7 @@ object WebSocket {
     * @param responseCodec        Codec to decode HttpResponse Header
     *
     */
-  def client[F[_]: ConcurrentEffect: ContextShift: Timer, I: Decoder, O: Encoder](
+  def client[F[_]: Async: Network, I: Decoder, O: Encoder](
     request: WebSocketRequest
     , pipe: Pipe[F, Frame[I], Frame[O]]
     , maxHeaderSize: Int = 4096
@@ -84,27 +84,26 @@ object WebSocket {
     , requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
     , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
   )(
-    socketGroup: SocketGroup
-    , tlsContext: TLSContext
+    tlsContext: TLSContext[F]
   ): Stream[F, Option[HttpResponseHeader]] = {
     import spinoco.fs2.http.internal._
     import Stream._
     eval(addressForRequest[F](if (request.secure) HttpScheme.WSS else HttpScheme.WS, request.hostPort)).flatMap { address =>
-    Stream.resource(socketGroup.client[F](address, receiveBufferSize = receiveBufferSize))
+    Stream.resource(Network[F].client(address))
     .flatMap { socket => if (request.secure) Stream.resource(clientLiftToSecure(tlsContext)(socket, request.hostPort)) else Stream.emit(socket) }
     .flatMap { socket =>
       val (header, fingerprint) = impl.createRequestHeaders(request.header)
       requestCodec.encode(header) match {
         case Failure(err) => Stream.raiseError[F](new Throwable(s"Failed to encode websocket request: $err"))
         case Successful(headerBits) =>
-          eval(socket.write(ByteVectorChunk(headerBits.bytes ++ `\r\n\r\n`))).flatMap { _ =>
-            socket.reads(receiveBufferSize) through httpHeaderAndBody(maxHeaderSize) flatMap { case (respHeaderBytes, body) =>
+          eval(socket.write(Chunk.byteVector(headerBits.bytes ++ `\r\n\r\n`))).flatMap { _ =>
+            socket.reads through httpHeaderAndBody(maxHeaderSize) flatMap { case (respHeaderBytes, body) =>
               responseCodec.decodeValue(respHeaderBytes.bits) match {
                 case Failure(err) => Stream.raiseError[F](new Throwable(s"Failed to decode websocket response: $err"))
                 case Successful(responseHeader) =>
                   impl.validateResponse[F](header, responseHeader, fingerprint).flatMap {
                     case Some(resp) => emit(Some(resp))
-                    case None => (body through impl.webSocketOf(pipe, Duration.Undefined, maxFrameSize, client2Server = true) through socket.writes(None)).drain ++ emit(None)
+                    case None => (body through impl.webSocketOf(pipe, Duration.Undefined, maxFrameSize, client2Server = true) through socket.writes).drain ++ emit(None)
                   }
               }
             }
@@ -138,7 +137,7 @@ object WebSocket {
              `Content-Type`(ContentType.TextContent(MediaType.`text/plain`, Some(MIMECharset.`UTF-8`)))
           )
         )
-        , body = Stream.chunk(ByteVectorChunk(ByteVector.view(s.getBytes)))
+        , body = Stream.chunk(Chunk.byteVector(ByteVector.view(s.getBytes)))
       )
 
       def version: Either[HttpResponse[F], Int] = header.headers.collectFirst {
@@ -198,7 +197,7 @@ object WebSocket {
       *                     by server.
       * @param client2Server When true, this represent client -> server direction, when false this represents reverse direction
       */
-    def webSocketOf[F[_] : Concurrent : Timer, I : Decoder, O : Encoder](
+    def webSocketOf[F[_]: Temporal, I : Decoder, O : Encoder](
      pipe: Pipe[F, Frame[I], Frame[O]]
      , pingInterval: Duration
      , maxFrameSize: Int
@@ -207,9 +206,9 @@ object WebSocket {
       Stream.eval(Queue.unbounded[F, PingPong]).flatMap { pingPongQ =>
         val metronome: Stream[F, Unit] = pingInterval match {
           case fin: FiniteDuration =>  Stream.awakeEvery[F](fin).map { _ => () }
-          case inf => Stream.empty
+          case _ => Stream.empty
         }
-        val control = controlStream[F](pingPongQ.dequeue, metronome, maxUnanswered = 3, flag = client2Server)
+        val control = controlStream[F](Stream.fromQueueUnterminated(pingPongQ), metronome, maxUnanswered = 3, flag = client2Server)
 
         source
         .through(decodeWebSocketFrame[F](maxFrameSize, client2Server))
@@ -328,8 +327,8 @@ object WebSocket {
               case OpCode.Continuation => go(buff :+ frame)(tl)
               case OpCode.Text => decode(buff :+ frame).flatMap { decoded => Pull.output1(Frame.Text(decoded)) >> go(Vector.empty)(tl) }
               case OpCode.Binary =>  decode(buff :+ frame).flatMap { decoded => Pull.output1(Frame.Binary(decoded)) >> go(Vector.empty)(tl) }
-              case OpCode.Ping => Pull.eval(pongQ.enqueue1(PingPong.Ping)) >> go(buff)(tl)
-              case OpCode.Pong => Pull.eval(pongQ.enqueue1(PingPong.Pong)) >> go(buff)(tl)
+              case OpCode.Ping => Pull.eval(pongQ.offer(PingPong.Ping)) >> go(buff)(tl)
+              case OpCode.Pong => Pull.eval(pongQ.offer(PingPong.Pong)) >> go(buff)(tl)
               case OpCode.Close => Pull.done
             }
         }
@@ -367,7 +366,7 @@ object WebSocket {
       _.append(Stream.emit(closeFrame)).flatMap { wsf =>
         WebSocketFrameCodec.codec.encode(wsf) match {
           case Failure(err) => Stream.raiseError(new Throwable(s"Failed to encode websocket frame: $err (frame: $wsf)"))
-          case Successful(data) => Stream.chunk(ByteVectorChunk(data.bytes))
+          case Successful(data) => Stream.chunk(Chunk.byteVector(data.bytes))
         }
       }
     }

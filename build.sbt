@@ -35,8 +35,8 @@ lazy val commonSettings = Seq(
      "org.scalacheck" %% "scalacheck" % "1.14.3" % "test"
      , "com.spinoco" %% "protocol-http" % "0.4.0-M1"
      , "com.spinoco" %% "protocol-websocket" % "0.4.0-M1"
-     , "co.fs2" %% "fs2-core" % "2.3.0"
-     , "co.fs2" %% "fs2-io" % "2.3.0"
+     , "co.fs2" %% "fs2-core" % "3.2.4"
+     , "co.fs2" %% "fs2-io" % "3.2.4"
    ),
    libraryDependencies ++= {
      CrossVersion.partialVersion(scalaVersion.value) match {
