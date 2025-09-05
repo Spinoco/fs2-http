@@ -9,7 +9,7 @@ lazy val contributors = Seq(
 
 lazy val commonSettings = Seq(
    organization := "com.spinoco",
-   scalaVersion := "2.12.20",
+   scalaVersion := "2.13.16",
    crossScalaVersions := Seq("2.12.20", "2.13.16"),
    scalacOptions ++= Seq(
     "-feature",
@@ -25,7 +25,7 @@ lazy val commonSettings = Seq(
     case Some((2, 13)) => Seq("-Ywarn-unused:imports")
     case _ => Seq()
    }),
-   scalacOptions in (Compile, console) ~= {_.filterNot(opt => opt == "-Ywarn-unused-import" || opt == "-Ywarn-unused:imports")},
+   Compile / console / scalacOptions ~= {_.filterNot(opt => opt == "-Ywarn-unused-import" || opt == "-Ywarn-unused:imports")},
    libraryDependencies ++= Seq(
      "org.scodec" %% "scodec-bits" % "1.2.4"
      , "org.scodec" %% "scodec-core" % "1.11.11"
@@ -49,19 +49,19 @@ lazy val commonSettings = Seq(
 ) ++ testSettings ++ scaladocSettings ++ publishingSettings ++ releaseSettings
 
 lazy val testSettings = Seq(
-  parallelExecution in Test := false,
-  testOptions in Test += Tests.Argument(TestFrameworks.ScalaTest, "-oDF"),
-  publishArtifact in Test := true
+  Test / parallelExecution := false,
+  Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-oDF"),
+  Test / publishArtifact := true
 )
 
 lazy val scaladocSettings = Seq(
-   scalacOptions in (Compile, doc) ++= Seq(
+   Compile / doc / scalacOptions ++= Seq(
     "-doc-source-url", scmInfo.value.get.browseUrl + "/tree/master€{FILE_PATH}.scala",
-    "-sourcepath", baseDirectory.in(LocalRootProject).value.getAbsolutePath,
+    "-sourcepath", (LocalRootProject / baseDirectory).value.getAbsolutePath,
     "-implicits",
     "-implicits-show-all"
   ),
-   scalacOptions in (Compile, doc) ~= { _ filterNot { _ == "-Xfatal-warnings" } },
+   Compile / doc / scalacOptions ~= { _ filterNot { _ == "-Xfatal-warnings" } },
    autoAPIMappings := true
 )
 

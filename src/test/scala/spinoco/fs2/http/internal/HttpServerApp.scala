@@ -17,7 +17,7 @@ object HttpServerApp extends App {
     if (request.path != Uri.Path / "echo") Resource.pure(HttpResponse[IO](HttpStatusCode.Ok).withUtf8Body("Hello World"))
     else {
       val ct =  request.headers.collectFirst { case `Content-Type`(ct) => ct }.getOrElse(ContentType.BinaryContent(MediaType.`application/octet-stream`, None))
-      val size = request.headers.collectFirst { case `Content-Length`(sz) => sz }.getOrElse(0l)
+      val size = request.headers.collectFirst { case `Content-Length`(sz) => sz }.getOrElse(0L)
       val ok = HttpResponse(HttpStatusCode.Ok).chunkedEncoding.withContentType(ct).withBodySize(size)
 
       Resource.pure(ok.copy(body = body.take(size)))

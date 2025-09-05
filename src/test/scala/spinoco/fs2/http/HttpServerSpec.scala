@@ -5,6 +5,7 @@ import com.comcast.ip4s._
 import fs2.{RaiseThrowable, _}
 import org.scalacheck.Prop._
 import org.scalacheck.Properties
+import spinoco.fs2.http.body.BodyEncoder
 import spinoco.protocol.http.header.{`Content-Length`, `Content-Type`}
 import spinoco.protocol.http.{HttpRequestHeader, HttpStatusCode, Uri}
 import spinoco.protocol.mime.{ContentType, MediaType}
@@ -24,7 +25,7 @@ object HttpServerSpec extends Properties("HttpServer"){
     if (request.path != Uri.Path / "echo") Resource.pure(HttpResponse[IO](HttpStatusCode.Ok).withUtf8Body("Hello World"))
     else {
       val ct =  request.headers.collectFirst { case `Content-Type`(ct0) => ct0 }.getOrElse(ContentType.BinaryContent(MediaType.`application/octet-stream`, None))
-      val size = request.headers.collectFirst { case `Content-Length`(sz) => sz }.getOrElse(0l)
+      val size = request.headers.collectFirst { case `Content-Length`(sz) => sz }.getOrElse(0L)
       val ok = HttpResponse(HttpStatusCode.Ok).chunkedEncoding.withContentType(ct).withBodySize(size)
 
       Resource.pure(ok.copy(body = body.take(size)))
