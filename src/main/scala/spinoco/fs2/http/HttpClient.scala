@@ -1,7 +1,8 @@
 package spinoco.fs2.http
 
 import cats.Applicative
-import cats.effect.{Async, Resource}
+import cats.data.OptionT
+import cats.effect.{Async, Resource, Sync}
 import fs2._
 import fs2.io.net.tls.TLSContext
 import fs2.io.net.{Network, Socket}
@@ -67,6 +68,7 @@ trait HttpClient[F[_]] {
     * consult supplied pipe and instead this will immediately emit response received from the server.
     *
     * @param request              WebSocket request
+   *  @param handshakeTimeout     Timeout to handshake initial websocket protocol before starting to exchange any data
     * @param maxResponseHeaderSize  Max size of  Http Response header received
     * @param maxFrameSize         Maximum size of single WebSocket frame. If the binary size of single frame is larger than
     *                             supplied value, WebSocket will fail.
@@ -74,6 +76,7 @@ trait HttpClient[F[_]] {
     */
   def websocket[I : Decoder, O : Encoder](
      request: WebSocketRequest
+     , handshakeTimeout: FiniteDuration
      , maxResponseHeaderSize: Int = 4096
      , maxFrameSize: Int = 1024*1024
   )(onConnect: HttpResponseHeader => Pipe[F, Frame[I], Frame[O]]): Stream[F, Option[HttpResponseHeader]]
@@ -83,7 +86,6 @@ trait HttpClient[F[_]] {
     *
     * @param request                  Request to server. Note that this must be `GET` request.
     * @param maxResponseHeaderSize    Max size of expected response header
-    * @param chunkSize                Max size of the chunk
     */
   def sse[A : SSEDecoder](
     request: HttpRequest[F]
@@ -131,10 +133,11 @@ trait HttpClient[F[_]] {
 
       def websocket[I : Decoder, O : Encoder](
         request: WebSocketRequest
+        , handshakeTimeout: FiniteDuration
         , maxResponseHeaderSize: Int
         , maxFrameSize: Int
       )(onConnect: HttpResponseHeader => Pipe[F, Frame[I], Frame[O]]): Stream[F, Option[HttpResponseHeader]] =
-        WebSocket.client(request,maxResponseHeaderSize,  maxFrameSize, requestCodec, responseCodec)(onConnect)
+        Stream.eval(WebSocket.client(request, handshakeTimeout, maxResponseHeaderSize,  maxFrameSize, requestCodec, responseCodec)(onConnect))
 
 
       def sse[A : SSEDecoder](rq: HttpRequest[F], maxResponseHeaderSize: Int): Stream[F, A] =
@@ -157,16 +160,21 @@ trait HttpClient[F[_]] {
       , requestCodec: Codec[HttpRequestHeader]
       , responseCodec: Codec[HttpResponseHeader]
      )(socket: Socket[F]):F[HttpResponse[F]] = {
-       timeout match {
-         case finite: FiniteDuration =>
-           (Stream.eval(HttpRequest.toStream(request, requestCodec).through(socket.writes).compile.drain) >>
-             socket.reads.through(HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec))
-             .timeout(finite)).compile.lastOrError
+       val httpStream = {
+         Stream.eval(HttpRequest.toStream(request, requestCodec).through(socket.writes).compile.drain) >>
+         socket.reads.through(HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec))
+       }
 
-         case _ =>
-           (Stream.eval(HttpRequest.toStream(request, requestCodec).through(socket.writes).compile.drain) >>
-             socket.reads.through(HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec)))
-             .compile.lastOrError
+       val maybeTimeoutStream = {
+         timeout match {
+           case finite: FiniteDuration => httpStream.timeoutOnPull(finite) // we are expecting exactly one item, so timeoutOnPull is sufficient, and prevents timeout on resulting stream
+           case _ => httpStream
+         }
+       }
+
+       OptionT(maybeTimeoutStream.compile.last)
+       .getOrElseF {
+         Sync[F].raiseError(new Throwable("Server closed connection without sending any response"))
        }
      }
 

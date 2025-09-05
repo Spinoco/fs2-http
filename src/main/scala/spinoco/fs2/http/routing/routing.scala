@@ -141,9 +141,10 @@ package object routing {
     , maxFrameSize: Int = 1024*1024
   ): Match[Nothing, (Pipe[F, Frame[I], Frame[O]]) => Resource[F, HttpResponse[F]]] =
     Match[Nothing, (Pipe[F, Frame[I], Frame[O]]) => Resource[F, HttpResponse[F]]] { (request, body) =>
-      Success(
-        WebSocket.server[F, I, O](_, pingInterval, handshakeTimeout, maxFrameSize)(Right((request, body)))
-      )
+      val service = WebSocket.server[F, I, O](pingInterval, handshakeTimeout, maxFrameSize) _
+      Success({ pipe: Pipe[F, Frame[I], Frame[O]] =>
+        service(pipe)(request, body)
+      })
     }
 
   /**

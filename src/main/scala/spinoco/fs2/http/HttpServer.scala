@@ -14,6 +14,8 @@ import scala.concurrent.duration._
 
 object HttpServer {
 
+  type Service[F[_]] = (HttpRequestHeader, Stream[F,Byte]) => Resource[F,HttpResponse[F]]
+
   /**
     * Creates simple http server,
     *
@@ -41,7 +43,7 @@ object HttpServer {
     , requestCodec: Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
     , responseCodec: Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
   )(
-    service: (HttpRequestHeader, Stream[F,Byte]) => Resource[F,HttpResponse[F]]
+    service: HttpServer.Service[F]
   ): Stream[F, Stream[F, RequestResult[F]]] = {
     Network[F].server(bindTo.map(_.host), bindTo.map(_.port))
     .map(handleConnection(maxHeaderSize, requestHeaderReceiveTimeout, requestCodec, responseCodec, service))
@@ -75,7 +77,7 @@ object HttpServer {
     def mkSocketStream(socket: Socket[F]): Stream[F, (HttpRequestHeader, Stream[F, Byte])] = {
       val socketStream = socket.reads.through(HttpRequest.fromStream(maxHeaderSize, requestCodec))
       requestHeaderReceiveTimeout match {
-        case fin: FiniteDuration => socketStream.timeout(fin)
+        case fin: FiniteDuration => socketStream.timeoutOnPull(fin) // we expect exactly one item, so timeoutOnPull is sufficient
         case _ => socketStream
       }
     }

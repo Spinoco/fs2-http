@@ -1,15 +1,15 @@
 package spinoco.fs2.http.websocket
 
-import cats.effect.{IO, Resource}
+import cats.effect.IO
+import com.comcast.ip4s._
 import fs2._
 import org.scalacheck.Prop._
 import org.scalacheck.{Gen, Prop, Properties}
 import scodec.Codec
 import scodec.bits.ByteVector
 import scodec.codecs._
-import spinoco.fs2.http.{HttpResponse, HttpServer}
-import spinoco.protocol.http.HttpRequestHeader
-import com.comcast.ip4s._
+import spinoco.fs2.http.HttpServer
+
 import scala.concurrent.duration._
 
 object WebSocketSpec extends Properties("WebSocket") {
@@ -43,12 +43,11 @@ object WebSocketSpec extends Properties("WebSocket") {
     }
 
     // Adapter to convert new API to old WebSocket.server API
-    def webSocketServerAdapter(request: HttpRequestHeader, body: Stream[IO, Byte]): Resource[IO, HttpResponse[IO]] = {
+    val webSocketServerAdapter: HttpServer.Service[IO] = {
       WebSocket.server (
-        pipe = serverEcho
-        , pingInterval = 500.millis
+        pingInterval = 500.millis
         , handshakeTimeout = 10.seconds
-      )(Right((request, body)))
+      )(serverEcho)
     }
     
     val serverStream =
@@ -56,9 +55,9 @@ object WebSocketSpec extends Properties("WebSocket") {
 
     val clientStream =
       Stream.sleep_[IO](3.seconds) ++
-      WebSocket.client(
+      Stream.eval(WebSocket.client(
         WebSocketRequest.ws("127.0.0.1", 9090, "/")
-      )(_ => clientData)
+      )(_ => clientData))
 
     val resultClient =
       (serverStream.drain mergeHaltBoth clientStream).compile.toVector.unsafeRunTimed(20.seconds)
