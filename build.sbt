@@ -1,9 +1,11 @@
-
+import xerial.sbt.Sonatype.sonatypeCentralHost
 
 val ReleaseTag = """^release/([\d\.]+a?)$""".r
 
 lazy val contributors = Seq(
  "pchlupacek" -> "Pavel Chlupáček"
+  , "mraulim" -> "Milan Raulim"
+  , "AdamChlupacek" -> "Adam Chlupáček"
 )
 
 
@@ -66,42 +68,27 @@ lazy val scaladocSettings = Seq(
 )
 
 lazy val publishingSettings = Seq(
-  publishTo := {
-   val nexus = "https://oss.sonatype.org/"
-   if (version.value.trim.endsWith("SNAPSHOT"))
-     Some("snapshots" at nexus + "content/repositories/snapshots")
-   else
-     Some("releases" at nexus + "service/local/staging/deploy/maven2")
-  },
-  credentials ++= (for {
-   username <- Option(System.getenv().get("SONATYPE_USERNAME"))
-   password <- Option(System.getenv().get("SONATYPE_PASSWORD"))
-  } yield Credentials("Sonatype Nexus Repository Manager", "oss.sonatype.org", username, password)).toSeq,
-  publishMavenStyle := true,
-  pomIncludeRepository := { _ => false },
-  pomExtra := {
-    <url>https://github.com/Spinoco/fs2-http</url>
-    <developers>
-      {for ((username, name) <- contributors) yield
-      <developer>
-        <id>{username}</id>
-        <name>{name}</name>
-        <url>http://github.com/{username}</url>
-      </developer>
-      }
-    </developers>
-  },
-  pomPostProcess := { node =>
-   import scala.xml._
-   import scala.xml.transform._
-   def stripIf(f: Node => Boolean) = new RewriteRule {
-     override def transform(n: Node) =
-       if (f(n)) NodeSeq.Empty else n
-   }
-   val stripTestScope = stripIf { n => n.label == "dependency" && (n \ "scope").text == "test" }
-   new RuleTransformer(stripTestScope).transform(node)(0)
-  }
-  , resolvers += Resolver.mavenLocal
+  sonatypeCredentialHost := sonatypeCentralHost,
+  publishTo := sonatypePublishToBundle.value,
+  versionScheme := Some("early-semver"),
+  organization := "com.spinoco",
+  homepage := Some(url("https://github.com/spinoco/fs2-http")),
+  licenses := List("MIT" -> url("http://opensource.org/licenses/MIT")),
+  developers := {
+    for ((username, name) <- contributors) yield
+      Developer(
+        username,
+        name,
+        "",
+        url(s"https://github.com/$username")
+      )
+  }.toList,
+  scmInfo := Some(
+    ScmInfo(
+      url("https://github.com/spinoco/fs2-http"),
+      "scm:git@github.com:spinoco/fs2-http.git"
+    )
+  )
 )
 
 lazy val releaseSettings = Seq(
