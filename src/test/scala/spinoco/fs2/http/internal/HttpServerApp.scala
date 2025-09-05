@@ -1,31 +1,29 @@
 package spinoco.fs2.http.internal
 
-import java.net.InetSocketAddress
-
-import cats.effect.IO
+import cats.effect.{IO, Resource}
 import fs2._
-import spinoco.fs2.http
-import spinoco.fs2.http.HttpResponse
+import spinoco.fs2.http.{HttpResponse, HttpServer}
 import spinoco.protocol.http.header._
-import spinoco.protocol.mime.{ContentType, MediaType}
 import spinoco.protocol.http.{HttpRequestHeader, HttpStatusCode, Uri}
+import spinoco.protocol.mime.{ContentType, MediaType}
+import com.comcast.ip4s._
 
 
 object HttpServerApp extends App {
 
   import spinoco.fs2.http.Resources._
 
-  def service(request: HttpRequestHeader, body: Stream[IO,Byte]): Stream[IO,HttpResponse[IO]] = {
-    if (request.path != Uri.Path / "echo") Stream.emit(HttpResponse[IO](HttpStatusCode.Ok).withUtf8Body("Hello World")).covary[IO]
+  def service(request: HttpRequestHeader, body: Stream[IO,Byte]): Resource[IO,HttpResponse[IO]] = {
+    if (request.path != Uri.Path / "echo") Resource.pure(HttpResponse[IO](HttpStatusCode.Ok).withUtf8Body("Hello World"))
     else {
       val ct =  request.headers.collectFirst { case `Content-Type`(ct) => ct }.getOrElse(ContentType.BinaryContent(MediaType.`application/octet-stream`, None))
       val size = request.headers.collectFirst { case `Content-Length`(sz) => sz }.getOrElse(0l)
       val ok = HttpResponse(HttpStatusCode.Ok).chunkedEncoding.withContentType(ct).withBodySize(size)
 
-      Stream.emit(ok.copy(body = body.take(size)))
+      Resource.pure(ok.copy(body = body.take(size)))
     }
   }
 
-  http.server(new InetSocketAddress("127.0.0.1", 9090))(service).compile.drain.unsafeRunSync()
+  HttpServer.create[IO](Some(SocketAddress(ipv4"127.0.0.1", port"9090")))(service).parJoin(10).compile.drain.unsafeRunSync()
 
 }

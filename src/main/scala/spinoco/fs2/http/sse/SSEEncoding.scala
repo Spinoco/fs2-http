@@ -1,7 +1,9 @@
 package spinoco.fs2.http.sse
 
-import fs2.Chunk.ByteVectorChunk
+import fs2.Chunk
 import fs2._
+import fs2.RaiseThrowable
+import fs2.text
 import scodec.Attempt
 import scodec.bits.ByteVector
 
@@ -23,22 +25,22 @@ object SSEEncoding {
         val eventBytes = event.map { s => s"event: $s" }.toSeq
         val dataBytes = data.map { s => s"data: $s" }
         val idBytes = id.map { s => s"id: $s" }.toSeq
-        Stream.chunk(ByteVectorChunk(ByteVector.view((
+        Stream.chunk(Chunk.byteVector(ByteVector.view((
           eventBytes ++ dataBytes ++ idBytes).mkString("", "\n", "\n\n").getBytes
         )))
 
       case SSEMessage.SSERetry(duration) =>
-        Stream.chunk(ByteVectorChunk(ByteVector.view(
+        Stream.chunk(Chunk.byteVector(ByteVector.view(
           s"retry: ${duration.toMillis}\n\n".getBytes
         )))
     }
   }
 
   /** encodes stream of `A` as SSE Stream **/
-  def encodeA[F[_], A](implicit E: SSEEncoder[A]): Pipe[F, A, Byte] = {
+  def encodeA[F[_]: RaiseThrowable, A](implicit E: SSEEncoder[A]): Pipe[F, A, Byte] = {
     _ flatMap { a => E.encode(a) match {
       case Attempt.Successful(msg) => Stream.emit(msg)
-      case Attempt.Failure(err) => Stream.raiseError(new Throwable(s"Failed to encode $a : $err"))
+      case Attempt.Failure(err) => Stream.raiseError[F](new Throwable(s"Failed to encode $a : $err"))
     }} through encode
   }
 
@@ -47,18 +49,18 @@ object SSEEncoding {
   /**
     * Decodes stream of bytes to SSE Messages
     */
-  def decode[F[_]]: Pipe[F, Byte, SSEMessage] = {
+  def decode[F[_]: RaiseThrowable]: Pipe[F, Byte, SSEMessage] = {
 
     // drops initial Byte Order Mark, if present
     def dropInitial(buff:ByteVector): Pipe[F, Byte, Byte] = {
-      _.pull.unconsChunk.flatMap {
-        case None => Pull.raiseError(new Throwable("SSE Socket did not contain any data"))
+      _.pull.uncons.flatMap {
+        case None => Pull.raiseError[F](new Throwable("SSE Socket did not contain any data"))
         case Some((chunk, next)) =>
           val all = buff ++ chunk2ByteVector(chunk)
-          if (all.size < 2) (next through dropInitial(all)).pull.echo
+          if (all.size < 2) next.through(dropInitial(all)).pull.echo
           else {
-            if (all.startsWith(StartBom)) Pull.output(ByteVectorChunk(all.drop(2))) >> next.pull.echo
-            else Pull.output(ByteVectorChunk(all)) >> next.pull.echo
+            if (all.startsWith(StartBom)) Pull.output(Chunk.byteVector(all.drop(2))) >> next.pull.echo
+            else Pull.output(Chunk.byteVector(all)) >> next.pull.echo
           }
       }.stream
     }
@@ -66,7 +68,7 @@ object SSEEncoding {
     // makes lines out of incoming bytes. Lines are utf-8 decoded
     // separated by \r\n or \n or \r
     def mkLines: Pipe[F, Byte, String] =
-      _ through text.utf8Decode[F] through text.lines[F]
+      _ through text.utf8.decode[F] through text.lines[F]
 
 
     // makes lines for single event
@@ -76,7 +78,7 @@ object SSEEncoding {
     // the last event is emitted only if it is terminated by empty line
     def mkEvents: Pipe[F, String, Seq[String]] = {
       def go(buff: Vector[String]): Stream[F, String] => Pull[F, Seq[String], Unit] = {
-        _.pull.unconsChunk flatMap {
+        _.pull.uncons flatMap {
           case None => Pull.done
 
           case Some((lines, tl)) =>
@@ -132,11 +134,11 @@ object SSEEncoding {
   }
 
   /** decodes stream of sse messages to `A`, given supplied decoder **/
-  def decodeA[F[_], A](implicit D: SSEDecoder[A]): Pipe[F, Byte, A] = {
+  def decodeA[F[_]: RaiseThrowable, A](implicit D: SSEDecoder[A]): Pipe[F, Byte, A] = {
     _ through decode flatMap { msg =>
       D.decode(msg) match {
         case Attempt.Successful(a) => Stream.emit(a)
-        case Attempt.Failure(err) => Stream.raiseError(new Throwable(s"Failed do decode: $msg : $err"))
+        case Attempt.Failure(err) => Stream.raiseError[F](new Throwable(s"Failed do decode: $msg : $err"))
       }
     }
   }

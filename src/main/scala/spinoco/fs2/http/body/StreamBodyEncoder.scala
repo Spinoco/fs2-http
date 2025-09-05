@@ -1,8 +1,9 @@
 package spinoco.fs2.http.body
 
 import cats.MonadError
-import fs2.Chunk.ByteVectorChunk
+import fs2.Chunk
 import fs2._
+import fs2.RaiseThrowable
 import scodec.Attempt.{Failure, Successful}
 import scodec.bits.ByteVector
 
@@ -43,7 +44,7 @@ object StreamBodyEncoder {
 
   /** encoder that encodes ByteVector as they come in, with `application/octet-stream` content type **/
   def byteVectorEncoder[F[_]] : StreamBodyEncoder[F, ByteVector] =
-    StreamBodyEncoder(ContentType.BinaryContent(MediaType.`application/octet-stream`, None)) { _.flatMap { bv => Stream.chunk(ByteVectorChunk(bv)) } }
+    StreamBodyEncoder(ContentType.BinaryContent(MediaType.`application/octet-stream`, None)) { _.flatMap { bv => Stream.chunk(Chunk.byteVector(bv)) } }
 
   /** encoder that encodes utf8 string, with `text/plain` utf8 content type **/
   def utf8StringEncoder[F[_]](implicit F: MonadError[F, Throwable]) : StreamBodyEncoder[F, String] =
@@ -55,11 +56,11 @@ object StreamBodyEncoder {
     } withContentType ContentType.TextContent(MediaType.`text/plain`, Some(MIMECharset.`UTF-8`))
 
   /** a convenience wrapper to convert body encoder to StreamBodyEncoder **/
-  def fromBodyEncoder[F[_], A](implicit E: BodyEncoder[A]):StreamBodyEncoder[F, A] =
+  def fromBodyEncoder[F[_]: RaiseThrowable, A](implicit E: BodyEncoder[A]):StreamBodyEncoder[F, A] =
     StreamBodyEncoder(E.contentType) { _.flatMap { a =>
       E.encode(a) match {
-        case Failure(err) => Stream.raiseError(new Throwable(s"Failed to encode: $err ($a)"))
-        case Successful(bytes) => Stream.chunk(ByteVectorChunk(bytes))
+        case Failure(err) => Stream.raiseError[F](new Throwable(s"Failed to encode: $err ($a)"))
+        case Successful(bytes) => Stream.chunk(Chunk.byteVector(bytes))
       }
     }}
 

@@ -7,11 +7,12 @@ import org.scalacheck.{Arbitrary, Gen, Properties}
 import scodec.bits.Bases.{Alphabets, Base64Alphabet}
 import scodec.bits.ByteVector
 import shapeless.the
-import spinoco.fs2.http.util
+import spinoco.fs2.http.{Resources, util}
 
 
 
 object UtilSpec extends Properties("util"){
+  import Resources._
 
   case class EncodingSample(chunkSize:Int, text:String, alphabet: Base64Alphabet)
 
@@ -24,7 +25,7 @@ object UtilSpec extends Properties("util"){
   }
 
   property("encodes.base64") = forAll { sample: EncodingSample =>
-    Stream.chunk[IO, Byte](Chunk.bytes(sample.text.getBytes)).chunkLimit(sample.chunkSize).flatMap(Stream.chunk[IO, Byte])
+    Stream.chunk[IO, Byte](Chunk.array(sample.text.getBytes)).chunkLimit(sample.chunkSize).flatMap(Stream.chunk[IO, Byte])
     .through(util.encodeBase64Raw(sample.alphabet))
     .chunks
     .fold(ByteVector.empty){ case (acc, n) => acc ++ chunk2ByteVector(n)}
@@ -37,7 +38,7 @@ object UtilSpec extends Properties("util"){
 
   property("decodes.base64") = forAll { sample: EncodingSample =>
     val encoded = ByteVector.view(sample.text.getBytes).toBase64(sample.alphabet)
-    Stream.chunk[IO, Byte](Chunk.bytes(encoded.getBytes))
+    Stream.chunk[IO, Byte](Chunk.array(encoded.getBytes))
     .chunkLimit(sample.chunkSize).flatMap(Stream.chunk[IO, Byte])
     .through(util.decodeBase64Raw(sample.alphabet))
     .chunks
@@ -50,7 +51,7 @@ object UtilSpec extends Properties("util"){
 
   property("encodes.decodes.base64") =  forAll { sample: EncodingSample =>
     val r =
-      Stream.chunk[IO, Byte](Chunk.bytes(sample.text.getBytes)).covary[IO].chunkLimit(sample.chunkSize).flatMap(Stream.chunk[IO, Byte])
+      Stream.chunk[IO, Byte](Chunk.array(sample.text.getBytes)).covary[IO].chunkLimit(sample.chunkSize).flatMap(Stream.chunk[IO, Byte])
       .through(util.encodeBase64Raw(sample.alphabet))
       .through(util.decodeBase64Raw(sample.alphabet))
       .chunks

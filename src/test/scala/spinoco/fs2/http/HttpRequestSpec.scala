@@ -11,6 +11,7 @@ import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 
 
 object HttpRequestSpec extends Properties("HttpRequest") {
+  import Resources._
   import spinoco.fs2.http.util.chunk2ByteVector
 
   property("encode") = secure {
@@ -36,7 +37,7 @@ object HttpRequestSpec extends Properties("HttpRequest") {
 
 
   property("decode") = secure {
-    Stream.chunk(Chunk.bytes(
+    Stream.chunk(Chunk.array(
       Seq(
         "GET /hello-world.html HTTP/1.1"
         , "Host: www.spinoco.com"
@@ -49,7 +50,7 @@ object HttpRequestSpec extends Properties("HttpRequest") {
     .covary[IO]
     .through(HttpRequest.fromStream[IO](4096,HttpRequestHeaderCodec.defaultCodec))
     .flatMap { case (header, body) =>
-      Stream.eval(body.chunks.compile.toVector.map(_.map(chunk2ByteVector).reduce(_ ++ _).decodeUtf8)).map { bodyString =>
+      Stream.eval(body.compile.toVector.map(chunks => Chunk.from(chunks)).map(chunk2ByteVector).map(_.decodeUtf8)).map { bodyString =>
         header -> bodyString
       }
     }.compile.toVector.unsafeRunSync() ?= Vector(

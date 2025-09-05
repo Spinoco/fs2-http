@@ -13,7 +13,7 @@ import spinoco.protocol.mime.{ContentType, MIMECharset, MediaType}
 
 
 object HttpResponseSpec extends Properties("HttpResponse") {
-
+  import Resources._
   property("encode") = secure {
 
     val response =
@@ -36,7 +36,7 @@ object HttpResponseSpec extends Properties("HttpResponse") {
 
   property("decode") = secure {
 
-    Stream.chunk(Chunk.bytes(
+    Stream.chunk(Chunk.array(
       Seq(
         "HTTP/1.1 200 OK"
         , "Content-Type: text/plain; charset=utf-8"

@@ -96,18 +96,6 @@ object Matcher {
 
   }
 
-//  implicit class MatcherStringPathSyntax[F[_]](val self: Matcher[F, String]) extends AnyVal {
-//    def /(s: String): Matcher[F, String] =
-//      self.advance.flatMap { _ => uriSegment(s) }
-//
-//    def or(s: String): Matcher[F, String] =
-//      Bind[F, String, String](self, {
-//        case success: Success[String] => Matcher.ofResult(success.asInstanceOf[MatchResult.Success[String]])
-//        case failed: Failed[F] => uriSegment(s)
-//      })
-//  } //TODO why is this here?
-
-
 
   case class Match[F[_], A](f:(HttpRequestHeader, Stream[F, Byte]) => MatchResult[F, A]) extends Matcher[F, A]
   case class Bind[F[_], A, B](m: Matcher[F, A], f: MatchResult[F,A] => Matcher[F, B]) extends Matcher[F, B]
@@ -139,11 +127,11 @@ object Matcher {
       current match {
         case m: Match[F,B] => F.map(F.pure(m.f(header.copy(path = path), body))) { _ -> path }
         case m: Eval[F, B] => F.map(m.f)(b => Success(b) -> path)
-        case m: Bind[F, _, B] => F.flatMap(F.suspend(go(m.m, path))){ case (r, path0) =>
+        case m: Bind[F, _, B] => F.flatMap(F.defer(go(m.m, path))){ case (r, path0) =>
           if (r.isSuccess)  go(m.f(r), path0)
           else go(m.f(r), path)
         }
-        case m: Advance[F, B] => F.map(F.suspend(go(m.m, path))){ case (r, path0) =>
+        case m: Advance[F, B] => F.map(F.defer(go(m.m, path))){ case (r, path0) =>
           if (r.isSuccess) {
             if (path0.segments.nonEmpty) r -> path0.copy(segments = path0.segments.tail)
             else if (path0.trailingSlash) r -> path0.copy(trailingSlash = false)

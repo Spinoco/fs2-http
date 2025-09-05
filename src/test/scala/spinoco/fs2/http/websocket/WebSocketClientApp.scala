@@ -24,8 +24,7 @@ object WebSocketClientApp extends App {
 
   WebSocket.client(
     WebSocketRequest.ws("echo.websocket.org", "/", QueryParameter.single("encoding", "text"))
-    , wspipe
-  ).map { x =>
+  )(_ => wspipe).map { x =>
     println(("RESULT OF WS", x))
   }.compile.drain.unsafeRunSync()
 

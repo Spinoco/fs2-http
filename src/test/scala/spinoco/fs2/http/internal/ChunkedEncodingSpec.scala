@@ -1,6 +1,7 @@
 package spinoco.fs2.http.internal
 
 import cats.effect.IO
+import cats.effect.unsafe.implicits.global
 import fs2._
 import org.scalacheck.Properties
 import org.scalacheck.Prop._
@@ -10,7 +11,7 @@ import spinoco.fs2.http.util.chunk2ByteVector
 object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
 
   property("encode-decode") = forAll { strings: List[String] =>
-    val in = strings.foldLeft(Stream.empty.covaryAll[IO, Byte]) { case(s,n) => s ++ Stream.chunk(Chunk.bytes(n.getBytes)) }
+    val in = strings.foldLeft(Stream.empty.covaryAll[IO, Byte]) { case(s,n) => s ++ Stream.chunk(Chunk.array(n.getBytes)) }
 
 
     (in through ChunkedEncoding.encode through ChunkedEncoding.decode(1024))
@@ -38,7 +39,7 @@ object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
   property("encoded-wiki-example") = secure {
 
 
-    (Stream.chunk[IO, Byte](Chunk.bytes(wikiExample.getBytes)) through ChunkedEncoding.decode(1024))
+    (Stream.chunk[IO, Byte](Chunk.array(wikiExample.getBytes)) through ChunkedEncoding.decode(1024))
     .covary[IO]
     .chunks
     .compile.toVector
@@ -53,7 +54,7 @@ object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
   property("encoded-wiki-example-by-2") = secure {
 
 
-    (Stream.chunk[IO, Byte](Chunk.bytes(wikiExample.getBytes)).chunkN(2).flatMap(Stream.chunk) through ChunkedEncoding.decode(1024))
+    (Stream.chunk[IO, Byte](Chunk.array(wikiExample.getBytes)).chunkN(2).flatMap(Stream.chunk) through ChunkedEncoding.decode(1024))
       .covary[IO]
       .chunks
       .compile.toVector
@@ -72,7 +73,7 @@ object ChunkedEncodingSpec extends Properties("ChunkedEncoding") {
         , "pedia"
         , " in\r\n\r\nchunks."
       )
-    ).flatMap(s => Stream.chunk[IO, Byte](Chunk.bytes(s.getBytes)))
+    ).flatMap(s => Stream.chunk[IO, Byte](Chunk.array(s.getBytes)))
 
     (chunks through ChunkedEncoding.encode)
       .chunks

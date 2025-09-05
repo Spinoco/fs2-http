@@ -4,10 +4,11 @@ import cats.effect.IO
 import fs2._
 import org.scalacheck.Properties
 import org.scalacheck.Prop._
-import spinoco.fs2.http.HttpResponse
+import spinoco.fs2.http.{HttpResponse, Resources}
 import spinoco.protocol.http.{HttpMethod, HttpRequestHeader, HttpStatusCode, Uri}
 
 object MatcherSpec extends Properties("Matcher"){
+  import Resources._
 
   val request = HttpRequestHeader(
     method = HttpMethod.GET

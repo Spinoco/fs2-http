@@ -1,6 +1,6 @@
 package spinoco.fs2.http
 
-import cats.effect.{Concurrent, Effect, Timer}
+import cats.effect.{Async, Resource, Sync}
 import fs2._
 import scodec.{Attempt, Decoder, Encoder}
 import scodec.bits.Bases.Base64Alphabet
@@ -26,7 +26,7 @@ package object routing {
 
 
   /** converts supplied route to function that is handled over to server to perform the routing **/
-  def route[F[_]](r:Route[F])(implicit F: Effect[F]):(HttpRequestHeader, Stream[F, Byte]) => Stream[F, HttpResponse[F]] = {
+  def route[F[_]](r:Route[F])(implicit F: Sync[F]):(HttpRequestHeader, Stream[F, Byte]) => Stream[F, HttpResponse[F]] = {
     (header, body) =>
       Stream.eval(Matcher.run[F, Stream[F, HttpResponse[F]]](r)(header, body)).flatMap { mr =>
         mr.fold((resp : HttpResponse[F]) => Stream.emit(resp), identity )
@@ -135,14 +135,14 @@ package object routing {
     * @param maxFrameSize     Maximum size of single websocket frame. If the binary size of single frame is larger than
     *                         supplied value, websocket will fail.
     */
-  def websocket[F[_] : Concurrent : Timer, I : Decoder, O : Encoder](
+  def websocket[F[_] : Async, I : Decoder, O : Encoder](
     pingInterval: Duration = 30.seconds
     , handshakeTimeout: FiniteDuration = 10.seconds
     , maxFrameSize: Int = 1024*1024
-  ): Match[Nothing, (Pipe[F, Frame[I], Frame[O]]) => Stream[F, HttpResponse[F]]] =
-    Match[Nothing, (Pipe[F, Frame[I], Frame[O]]) => Stream[F, HttpResponse[F]]] { (request, body) =>
+  ): Match[Nothing, (Pipe[F, Frame[I], Frame[O]]) => Resource[F, HttpResponse[F]]] =
+    Match[Nothing, (Pipe[F, Frame[I], Frame[O]]) => Resource[F, HttpResponse[F]]] { (request, body) =>
       Success(
-        WebSocket.server[F, I, O](_, pingInterval, handshakeTimeout, maxFrameSize)(request, body)
+        WebSocket.server[F, I, O](_, pingInterval, handshakeTimeout, maxFrameSize)(Right((request, body)))
       )
     }
 
@@ -182,7 +182,7 @@ package object routing {
       }
 
     /** extracts last element of the `body` or responds BadRequest if body can't be extracted **/
-    def as[A](implicit D: BodyDecoder[A], F: Effect[F]): Matcher[F, A] = {
+    def as[A](implicit D: BodyDecoder[A], F: Sync[F]): Matcher[F, A] = {
       header[`Content-Type`].flatMap { ct =>
         bytes.flatMap { s => eval {
           F.map(s.chunks.compile.toVector) { chunks =>

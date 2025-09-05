@@ -1,37 +1,35 @@
 package spinoco.fs2.http
 
-import java.nio.channels.AsynchronousChannelGroup
-
 import cats.Applicative
-import javax.net.ssl.SSLContext
-import cats.effect.{Concurrent, ConcurrentEffect, Sync, Timer}
+import cats.effect.{Async, Resource}
 import fs2._
-import fs2.io.tcp.Socket
+import fs2.io.net.tls.TLSContext
+import fs2.io.net.{Network, Socket}
 import scodec.{Codec, Decoder, Encoder}
-
-import spinoco.fs2.http.internal.{addressForRequest, clientLiftToSecure, readWithTimeout}
+import spinoco.fs2.http.internal.addressForRequest
 import spinoco.fs2.http.sse.{SSEDecoder, SSEEncoding}
 import spinoco.fs2.http.websocket.{Frame, WebSocket, WebSocketRequest}
+import spinoco.protocol.http.codec.{HttpRequestHeaderCodec, HttpResponseHeaderCodec}
 import spinoco.protocol.http.header._
-import spinoco.protocol.mime.MediaType
 import spinoco.protocol.http.{HttpRequestHeader, HttpResponseHeader}
-import scala.concurrent.ExecutionContext
+import spinoco.protocol.mime.MediaType
+
 import scala.concurrent.duration._
 
 
 trait HttpClient[F[_]] {
 
   /**
-    * Performs a single `request`. Returns one response if client replied.
+    * Performs a single `request`. Returns a Resource that provides one response if client replied.
     *
     * Note that request may contain stream of bytes that shall be sent to client.
     * The response from server is evaluated _after_ client sent all data, including the body to the server.
     *
-    * Note that the evaluation of `body` in HttpResponse may not outlive scope of resulting stream. That means
-    * only correct way to process the result is within the flatMap i.e.
+    * The Resource ensures proper cleanup of the underlying connection. The response body stream
+    * remains available during the Resource's lifetime. Typical usage:
     *  `
-    *  request(thatRequest).flatMap { response =>
-    *    response.body.through(bodyProcessor)
+    *  request(thatRequest).use { response =>
+    *    response.body.through(bodyProcessor).compile.drain
     *  }
     *  `
     *
@@ -41,19 +39,20 @@ trait HttpClient[F[_]] {
     * Timeout is computed once the requests was sent and includes also the time for processing the response header
     * but not the body.
     *
-    * Resulting stream fails with TimeoutException if the timeout is triggered
+    * Resulting Resource fails with TimeoutException if the timeout is triggered
     *
     * @param request        Request to make to server
-    * @param chunkSize      Size of the chunk to used when receiving response from server
-    * @param timeout        Request will fail if response header and response body is not received within supplied timeout
+    * @param timeout        Request will fail if response header is not received within supplied timeout
+   *                        Note that this is timeout just for the header, the body is available as stream and may be processed
+   *                        at leisure. Also timeout applies after the request was sent, so if the request body is a stream
+   *                        that does not end, the timeout will not be applied.
     *
     */
   def request(
      request: HttpRequest[F]
-     , chunkSize: Int = 32*1024
      , maxResponseHeaderSize: Int = 4096
      , timeout: Duration = 5.seconds
-  ):Stream[F,HttpResponse[F]]
+  ): Resource[F,HttpResponse[F]]
 
 
   /**
@@ -68,20 +67,16 @@ trait HttpClient[F[_]] {
     * consult supplied pipe and instead this will immediately emit response received from the server.
     *
     * @param request              WebSocket request
-    * @param pipe                 Pipe that is consulted when WebSocket is established correctly
     * @param maxResponseHeaderSize  Max size of  Http Response header received
-    * @param chunkSize            Size of receive buffer to use
     * @param maxFrameSize         Maximum size of single WebSocket frame. If the binary size of single frame is larger than
     *                             supplied value, WebSocket will fail.
-    *
+    * @param onConnect            Function to evaluate to pipe when successfully connected.
     */
   def websocket[I : Decoder, O : Encoder](
      request: WebSocketRequest
-     , pipe: Pipe[F, Frame[I], Frame[O]]
      , maxResponseHeaderSize: Int = 4096
-     , chunkSize: Int = 32 * 1024
      , maxFrameSize: Int = 1024*1024
-  ): Stream[F, Option[HttpResponseHeader]]
+  )(onConnect: HttpResponseHeader => Pipe[F, Frame[I], Frame[O]]): Stream[F, Option[HttpResponseHeader]]
 
   /**
     * Reads SSE encoded stream of data from the server.
@@ -93,7 +88,6 @@ trait HttpClient[F[_]] {
   def sse[A : SSEDecoder](
     request: HttpRequest[F]
     , maxResponseHeaderSize: Int = 4096
-    , chunkSize: Int = 32 * 1024
   ): Stream[F, A]
 
 }
@@ -102,52 +96,51 @@ trait HttpClient[F[_]] {
  object HttpClient {
 
 
+   @inline def apply[F[_]](implicit instance: HttpClient[F]): HttpClient[F] = instance
+
    /**
      * Creates an Http Client
      * @param requestCodec    Codec used to decode request header
      * @param responseCodec   Codec used to encode response header
-     * @param sslExecutionContext     Strategy used when communication with SSL (https or wss)
-     * @param sslContext      SSL Context to use with SSL Client (https, wss)
      */
-  def apply[F[_] : ConcurrentEffect : Timer](
-   requestCodec         : Codec[HttpRequestHeader]
-   , responseCodec      : Codec[HttpResponseHeader]
-   , sslExecutionContext: => ExecutionContext
-   , sslContext         : => SSLContext
-  )(implicit AG: AsynchronousChannelGroup):F[HttpClient[F]] = Sync[F].delay {
-    lazy val sslCtx = sslContext
-    lazy val sslS = sslExecutionContext
+  def create[F[_]
+  : Async
+  : Network
+  : TLSContext
+  ](
+   requestCodec         : Codec[HttpRequestHeader] = HttpRequestHeaderCodec.defaultCodec
+   , responseCodec      : Codec[HttpResponseHeader] = HttpResponseHeaderCodec.defaultCodec
+  ):F[HttpClient[F]] = Applicative[F].pure {
 
     new HttpClient[F] {
       def request(
        request: HttpRequest[F]
-       , chunkSize: Int
        , maxResponseHeaderSize: Int
        , timeout: Duration
-      ): Stream[F, HttpResponse[F]] = {
-        Stream.eval(addressForRequest[F](request.scheme, request.host)).flatMap { address =>
-        Stream.resource(io.tcp.client[F](address))
-        .evalMap { socket =>
-          if (!request.isSecure) Applicative[F].pure(socket)
-          else clientLiftToSecure[F](sslS, sslCtx)(socket, request.host)
-        }
-        .flatMap { impl.request[F](request, chunkSize, maxResponseHeaderSize, timeout, requestCodec, responseCodec ) }}
+      ): Resource[F, HttpResponse[F]] = {
+        for {
+          address <- Resource.eval(addressForRequest[F](request.scheme, request.host))
+          tcpSocket <- Network[F].client(address)
+          socket <- {
+            if (!request.isSecure) Resource.pure[F, Socket[F]](tcpSocket)
+            else spinoco.fs2.http.internal.clientLiftToSecure[F](tcpSocket, request.host) // need to lift this to resource
+          }
+          response <- Resource.eval(impl.request[F](request, maxResponseHeaderSize, timeout, requestCodec, responseCodec)(socket))
+        } yield response
       }
 
       def websocket[I : Decoder, O : Encoder](
         request: WebSocketRequest
-        , pipe: Pipe[F, Frame[I], Frame[O]]
         , maxResponseHeaderSize: Int
-        , chunkSize: Int
         , maxFrameSize: Int
-      ): Stream[F, Option[HttpResponseHeader]] =
-        WebSocket.client(request,pipe,maxResponseHeaderSize,chunkSize,maxFrameSize, requestCodec, responseCodec, sslS, sslCtx)
+      )(onConnect: HttpResponseHeader => Pipe[F, Frame[I], Frame[O]]): Stream[F, Option[HttpResponseHeader]] =
+        WebSocket.client(request,maxResponseHeaderSize,  maxFrameSize, requestCodec, responseCodec)(onConnect)
 
 
-      def sse[A : SSEDecoder](rq: HttpRequest[F], maxResponseHeaderSize: Int, chunkSize: Int): Stream[F, A] =
-        request(rq, chunkSize, maxResponseHeaderSize, Duration.Inf).flatMap { resp =>
+      def sse[A : SSEDecoder](rq: HttpRequest[F], maxResponseHeaderSize: Int): Stream[F, A] =
+        Stream.resource(request(rq, maxResponseHeaderSize, Duration.Inf)).flatMap { resp =>
           if (resp.header.headers.exists { case `Content-Type`(ct) => ct.mediaType == MediaType.`text/event-stream`  })
-            Stream.raiseError(new Throwable(s"Received response is not SSE: $resp"))
+            Stream.raiseError[F](new Throwable(s"Received response is not SSE: $resp"))
           else
             resp.body through SSEEncoding.decodeA[F, A]
         }
@@ -157,33 +150,23 @@ trait HttpClient[F[_]] {
 
    private[http] object impl {
 
-     def request[F[_] : Concurrent](
+     def request[F[_] : Async](
       request: HttpRequest[F]
-      , chunkSize: Int
       , maxResponseHeaderSize: Int
       , timeout: Duration
       , requestCodec: Codec[HttpRequestHeader]
       , responseCodec: Codec[HttpResponseHeader]
-     )(socket: Socket[F]):Stream[F, HttpResponse[F]] = {
-       import Stream._
+     )(socket: Socket[F]):F[HttpResponse[F]] = {
        timeout match {
-         case fin: FiniteDuration =>
-           eval(Sync[F].delay(System.currentTimeMillis())).flatMap { start =>
-           HttpRequest.toStream(request, requestCodec).to(socket.writes(Some(fin))).last.onFinalize(socket.endOfOutput).flatMap { _ =>
-           eval(async.signalOf[F, Boolean](true)).flatMap { timeoutSignal =>
-           eval(Sync[F].delay(System.currentTimeMillis())).flatMap { sent =>
-             val remains = fin - (sent - start).millis
-             readWithTimeout(socket, remains, timeoutSignal.get, chunkSize)
-             .through (HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec))
-             .flatMap { response =>
-               eval_(timeoutSignal.set(false)) ++ emit(response)
-             }
-           }}}}
+         case finite: FiniteDuration =>
+           (Stream.eval(HttpRequest.toStream(request, requestCodec).through(socket.writes).compile.drain) >>
+             socket.reads.through(HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec))
+             .timeout(finite)).compile.lastOrError
 
          case _ =>
-           HttpRequest.toStream(request, requestCodec).to(socket.writes(None)).last.onFinalize(socket.endOfOutput).flatMap { _ =>
-             socket.reads(chunkSize, None) through HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec)
-           }
+           (Stream.eval(HttpRequest.toStream(request, requestCodec).through(socket.writes).compile.drain) >>
+             socket.reads.through(HttpResponse.fromStream[F](maxResponseHeaderSize, responseCodec)))
+             .compile.lastOrError
        }
      }
 
