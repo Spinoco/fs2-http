@@ -9,6 +9,7 @@ import scodec.Attempt.{Failure, Successful}
 import scodec.{Attempt, Codec, Err}
 
 import spinoco.fs2.http.body.{BodyDecoder, BodyEncoder, StreamBodyEncoder}
+import spinoco.fs2.http.internal._
 import spinoco.protocol.http._
 import header._
 import spinoco.protocol.mime.{ContentType, MediaType}
@@ -23,7 +24,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
 
   /** yields to true, if body of this request shall be chunked **/
   lazy val bodyIsChunked : Boolean =
-    withHeaders(internal.bodyIsChunked)
+    withHeaders(spinoco.fs2.http.internal.bodyIsChunked)
 
   /** allows to stream arbitrary sized stream of `A` to remote party (i.e. upload) **/
   def withStreamBody[A](body: Stream[F, A])(implicit E: StreamBodyEncoder[F, A]): Self = {
@@ -38,7 +39,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
 
   /** sets body size to supplied value **/
   def withBodySize(sz: Long): Self =
-    updateHeaders(withHeaders(internal.swapHeader(`Content-Length`(sz))))
+    updateHeaders(withHeaders(swapHeader(`Content-Length`(sz))))
 
   /** gets body size, if one specified **/
   def bodySize: Option[Long] =
@@ -88,7 +89,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
 
   /** updates content type to one specified **/
   def withContentType(ct: ContentType): Self =
-    updateHeaders(withHeaders(internal.swapHeader(`Content-Type`(ct))))
+    updateHeaders(withHeaders(swapHeader(`Content-Type`(ct))))
 
   /** gets ContentType, if one specififed **/
   def contentType: Option[ContentType] =
@@ -97,7 +98,7 @@ sealed trait HttpRequestOrResponse[F[_]] { self =>
 
   /** configures encoding as chunked **/
   def chunkedEncoding: Self =
-    updateHeaders(withHeaders(internal.swapHeader(`Transfer-Encoding`(List("chunked")))))
+    updateHeaders(withHeaders(swapHeader(`Transfer-Encoding`(List("chunked")))))
 
   def withHeaders[A](f: List[HttpHeader] => A): A = self match {
     case HttpRequest(_,_,header,_) => f(header.headers)
@@ -215,13 +216,10 @@ object HttpRequest {
     maxHeaderSize: Int
     , headerCodec: Codec[HttpRequestHeader]
   ): Pipe[F, Byte, (HttpRequestHeader, Stream[F, Byte])] = {
-    import internal._
     _ through httpHeaderAndBody(maxHeaderSize) flatMap { case (header, bodyRaw) =>
-      println(s"HEADER: $header")
       headerCodec.decodeValue(header.bits) match {
         case Failure(err) => Stream.raiseError[F](new Throwable(s"Decoding of the request header failed: $err"))
         case Successful(decoded) =>
-          println("DECODED: " + decoded)
           val body =
             if (bodyIsChunked(decoded.headers)) bodyRaw through ChunkedEncoding.decode(1000)
             else bodyRaw
@@ -247,7 +245,6 @@ object HttpRequest {
     request: HttpRequest[F]
     , headerCodec: Codec[HttpRequestHeader]
   ): Stream[F, Byte] = Stream.suspend {
-    import internal._
 
     headerCodec.encode(request.header) match {
       case Failure(err) => Stream.raiseError[F](new Throwable(s"Encoding of the header failed: $err"))
@@ -286,7 +283,7 @@ final case class HttpResponse[F[_]](
   def sseBody[A](in: Stream[F, A])(implicit E: SSEEncoder[A], RT: RaiseThrowable[F]): Self =
      self
      .updateBody(in through SSEEncoding.encodeA[F, A])
-     .updateHeaders(withHeaders(internal.swapHeader(`Content-Type`(ContentType.TextContent(MediaType.`text/event-stream`, None)))))
+     .updateHeaders(withHeaders(swapHeader(`Content-Type`(ContentType.TextContent(MediaType.`text/event-stream`, None)))))
 }
 
 
@@ -308,7 +305,6 @@ object HttpResponse {
     maxHeaderSize: Int
     , responseCodec: Codec[HttpResponseHeader]
   ): Pipe[F,Byte, HttpResponse[F]] = {
-    import internal._
 
     _ through httpHeaderAndBody(maxHeaderSize) flatMap { case (header, bodyRaw) =>
       responseCodec.decodeValue(header.bits) match {
@@ -332,7 +328,6 @@ object HttpResponse {
     response: HttpResponse[F]
     , headerCodec: Codec[HttpResponseHeader]
   ): Stream[F, Byte] = Stream.suspend {
-    import internal._
 
     headerCodec.encode(response.header) match {
       case Failure(err) => Stream.raiseError[F](new Throwable(s"Failed to encode http response : $response :$err "))

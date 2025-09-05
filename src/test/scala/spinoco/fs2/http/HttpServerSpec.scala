@@ -32,7 +32,6 @@ object HttpServerSpec extends Properties("HttpServer"){
   }
 
   def failRouteService(request: HttpRequestHeader, body: Stream[IO,Byte]): Resource[IO,HttpResponse[IO]] = {
-    println("SERVER: failing route for " + request)
     Resource.raiseError[IO, HttpResponse[IO], Throwable](new Throwable("Booom!"))
   }
 
@@ -40,63 +39,62 @@ object HttpServerSpec extends Properties("HttpServer"){
     HttpResponse(HttpStatusCode.Ok).copy(body = Stream.raiseError[IO](new Throwable("Kaboom!")))
   }
 
-  // No more wrapper functions needed - services work directly with (HttpRequestHeader, Stream[IO,Byte])
 
-//
-//  property("simultaneous-requests") = secure {
-//    // run up to count parallel requests and then make sure all of them pass within timeout
-//    val count = 100
-//
-//    def clients : Stream[IO, Stream[IO, (Int, Boolean)]] = {
-//      val request = HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
-//      Stream.eval(HttpClient.create[IO]()).flatMap { httpClient =>
-//      Stream.range(0,count).chunkLimit(1).unchunks.map { idx =>
-//        Stream.resource(httpClient.request(request)).map(resp => idx -> (resp.header.status == HttpStatusCode.Ok))
-//      }}
-//    }
-//
-//
-//    (Stream(
-//      HttpServer.create[IO](Some(SocketAddress(ipv4"127.0.0.1", port"9090")))(echoService).parJoin(MaxConcurrency).drain
-//    ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients)
-//    .parJoin(MaxConcurrency)
-//    .take(count)
-//    .filter { case (idx, success) => success }
-//    .compile.toVector.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
-//
-//
-//
-//  }
-//
-//  property("simultaneous-requests-echo body") = secure {
-//    // run up to count parallel requests with body,  and then make sure all of them pass within timeout with body echoed back
-//    val count = 100
-//
-//    def clients : Stream[IO, Stream[IO, (Int, Boolean)]] = {
-//      val request =
-//        HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
-//       .withBody("Hello")(BodyEncoder.utf8String, raiseThrowable)
-//
-//      Stream.eval(HttpClient.create[IO]()).flatMap { httpClient =>
-//        Stream.range(0,count).chunkLimit(1).unchunks.map { idx =>
-//          Stream.resource(httpClient.request(request)).flatMap { resp =>
-//            Stream.eval(resp.bodyAsString).map { attempt =>
-//              val okResult = resp.header.status == HttpStatusCode.Ok
-//              attempt.map(_ == "Hello").map(r => idx -> (r && okResult)).getOrElse(idx -> false)
-//            }
-//          }
-//        }}
-//    }
-//
-//    ( Stream.sleep_[IO](3.second) ++
-//    (Stream(
-//      HttpServer.create[IO](Some(SocketAddress(ipv4"127.0.0.1", port"9090")))(echoService).parJoin(MaxConcurrency).drain
-//    ).covary[IO] ++ Stream.sleep_[IO](3.second) ++ clients).parJoin(MaxConcurrency))
-//    .take(count)
-//    .filter { case (idx, success) => success }
-//    .compile.toVector.unsafeRunTimed(60.seconds).map { _.size } ?= Some(count)
-//
-//  }
+
+  property("simultaneous-requests") = secure {
+    // run up to count parallel requests and then make sure all of them pass within timeout
+    val count = 100
+
+    def clients : Stream[IO, Stream[IO, (Int, Boolean)]] = {
+      val request = HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
+      Stream.eval(HttpClient.create[IO]()).flatMap { httpClient =>
+      Stream.range(0,count).chunkLimit(1).unchunks.map { idx =>
+        Stream.resource(httpClient.request(request)).map(resp => idx -> (resp.header.status == HttpStatusCode.Ok))
+      }}
+    }
+
+
+    (Stream(
+      HttpServer.create[IO](Some(SocketAddress(ipv4"127.0.0.1", port"9090")))(echoService).parJoin(MaxConcurrency).drain
+    ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients)
+    .parJoin(MaxConcurrency)
+    .take(count)
+    .filter { case (idx, success) => success }
+    .compile.toVector.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
+
+
+
+  }
+
+  property("simultaneous-requests-echo body") = secure {
+    // run up to count parallel requests with body,  and then make sure all of them pass within timeout with body echoed back
+    val count = 100
+
+    def clients : Stream[IO, Stream[IO, (Int, Boolean)]] = {
+      val request =
+        HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
+       .withBody("Hello")(BodyEncoder.utf8String, raiseThrowable)
+
+      Stream.eval(HttpClient.create[IO]()).flatMap { httpClient =>
+        Stream.range(0,count).chunkLimit(1).unchunks.map { idx =>
+          Stream.resource(httpClient.request(request)).flatMap { resp =>
+            Stream.eval(resp.bodyAsString).map { attempt =>
+              val okResult = resp.header.status == HttpStatusCode.Ok
+              attempt.map(_ == "Hello").map(r => idx -> (r && okResult)).getOrElse(idx -> false)
+            }
+          }
+        }}
+    }
+
+    ( Stream.sleep_[IO](3.second) ++
+    (Stream(
+      HttpServer.create[IO](Some(SocketAddress(ipv4"127.0.0.1", port"9090")))(echoService).parJoin(MaxConcurrency).drain
+    ).covary[IO] ++ Stream.sleep_[IO](3.second) ++ clients).parJoin(MaxConcurrency))
+    .take(count)
+    .filter { case (idx, success) => success }
+    .compile.toVector.unsafeRunTimed(60.seconds).map { _.size } ?= Some(count)
+
+  }
 
 
   property("request-failed-to-route") = secure {
@@ -135,34 +133,34 @@ object HttpServerSpec extends Properties("HttpServer"){
   }
 
 
-//
-//  property("request-failed-body-send") = secure {
-//    // run up to count parallel requests with body, server shall fail each (when sending body), nevertheless response shall be delivered.
-//    val count = 100
-//
-//    def clients : Stream[IO, Stream[IO, (Int, Boolean)]] = {
-//      val request =
-//        HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
-//
-//      Stream.eval(HttpClient.create[IO]()).flatMap { httpClient =>
-//        Stream.range(0,count).chunkLimit(1).unchunks.map { idx =>
-//          Stream.resource(httpClient.request(request)).map { resp =>
-//            idx -> (resp.header.status == HttpStatusCode.Ok) // body won't be consumed, and request was succesfully sent
-//          }
-//        }
-//      }
-//    }
-//
-//    (Stream.sleep_[IO](3.second) ++
-//    (Stream(
-//      HttpServer.create[IO](
-//        Some(SocketAddress(ipv4"127.0.0.1", port"9090"))
-//      )(failingResponse).parJoin(MaxConcurrency).drain
-//    ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients).parJoin(MaxConcurrency))
-//      .take(count)
-//      .filter { case (idx, success) => success }
-//      .compile.toVector.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
-//  }
+
+  property("request-failed-body-send") = secure {
+    // run up to count parallel requests with body, server shall fail each (when sending body), nevertheless response shall be delivered.
+    val count = 100
+
+    def clients : Stream[IO, Stream[IO, (Int, Boolean)]] = {
+      val request =
+        HttpRequest.get[IO](Uri.parse("http://127.0.0.1:9090/echo").getOrElse(throw new Throwable("Invalid uri")))
+
+      Stream.eval(HttpClient.create[IO]()).flatMap { httpClient =>
+        Stream.range(0,count).chunkLimit(1).unchunks.map { idx =>
+          Stream.resource(httpClient.request(request)).map { resp =>
+            idx -> (resp.header.status == HttpStatusCode.Ok) // body won't be consumed, and request was succesfully sent
+          }
+        }
+      }
+    }
+
+    (Stream.sleep_[IO](3.second) ++
+    (Stream(
+      HttpServer.create[IO](
+        Some(SocketAddress(ipv4"127.0.0.1", port"9090"))
+      )(failingResponse).parJoin(MaxConcurrency).drain
+    ).covary[IO] ++ Stream.sleep_[IO](1.second) ++ clients).parJoin(MaxConcurrency))
+      .take(count)
+      .filter { case (idx, success) => success }
+      .compile.toVector.unsafeRunTimed(30.seconds).map { _.size } ?= Some(count)
+  }
 
 
 

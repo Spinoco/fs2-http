@@ -10,7 +10,7 @@ lazy val contributors = Seq(
 lazy val commonSettings = Seq(
    organization := "com.spinoco",
    scalaVersion := "2.12.20",
-   crossScalaVersions := Seq("2.12.20"),
+   crossScalaVersions := Seq("2.12.20", "2.13.16"),
    scalacOptions ++= Seq(
     "-feature",
     "-deprecation",
@@ -19,17 +19,19 @@ lazy val commonSettings = Seq(
     "-language:existentials",
     "-language:postfixOps",
     "-Xfatal-warnings",
-    "-Yno-adapted-args",
-    "-Ywarn-value-discard",
-    "-Ywarn-unused-import"
-   ),
-   scalacOptions in (Compile, console) ~= {_.filterNot("-Ywarn-unused-import" == _)},
+    "-Ywarn-value-discard"
+   ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
+    case Some((2, 12)) => Seq("-Yno-adapted-args", "-Ywarn-unused-import")
+    case Some((2, 13)) => Seq("-Ywarn-unused:imports")
+    case _ => Seq()
+   }),
+   scalacOptions in (Compile, console) ~= {_.filterNot(opt => opt == "-Ywarn-unused-import" || opt == "-Ywarn-unused:imports")},
    libraryDependencies ++= Seq(
      "org.scodec" %% "scodec-bits" % "1.2.4"
      , "org.scodec" %% "scodec-core" % "1.11.11"
-     , "org.scalacheck" %% "scalacheck" % "1.13.4" % "test"
-     , "com.spinoco" %% "protocol-http" %  "0.5.0-SNAPSHOT"
-     , "com.spinoco" %% "protocol-websocket" % "0.5.0-SNAPSHOT"
+     , "org.scalacheck" %% "scalacheck" % "1.17.1" % "test"
+     , "com.spinoco" %% "protocol-http" %  "0.5.1"
+     , "com.spinoco" %% "protocol-websocket" % "0.5.1"
      , "co.fs2" %% "fs2-core" % "3.12.2"
      , "co.fs2" %% "fs2-io" % "3.12.2"
      , "com.comcast" %% "ip4s-core" % "3.7.0"

@@ -48,7 +48,7 @@ object WebSocket {
   )(either: Either[Throwable, (HttpRequestHeader, Stream[F,Byte])]): Resource[F,HttpResponse[F]] = {
     either match {
       case Right((header, input)) => Resource.pure(
-        impl.verifyHeaderRequest[F](header).right.map { key =>
+        impl.verifyHeaderRequest[F](header).map { key =>
           val respHeader = impl.computeHandshakeResponse(header, key)
           HttpResponse(respHeader, input through impl.webSocketOf(pipe, pingInterval, maxFrameSize, client2Server = false))
         }.merge
@@ -164,11 +164,11 @@ object WebSocket {
       }.getOrElse(Left(badRequest("Missing Sec-WebSocket-Key header")))
 
       for {
-        _ <- version.right
-        _ <- host.right
-        _ <- upgrade.right
-        _ <- connection.right
-        key <- webSocketKey.right
+        _ <- version
+        _ <- host
+        _ <- upgrade
+        _ <- connection
+        key <- webSocketKey
       } yield key
 
     }
